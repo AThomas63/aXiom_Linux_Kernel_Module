@@ -153,7 +153,6 @@ u16 usage_to_target_address(struct axiom_data_core *data_core,
 		target_address = 0xFFFF;
 		pr_err("ERROR: aXiom-core: Unpopulated usage table for usage: %u\n", usage);
 	}
-	
 	pr_debug("aXiom-core: target_address is 0x%04x for usage: 0x%02x page %u\n", target_address, usage, page);
 	return target_address;
 }

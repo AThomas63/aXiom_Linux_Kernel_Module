@@ -33,6 +33,7 @@
 #include <linux/string.h>
 #include "axiom_core.h"
 
+
 static bool poll_enable;
 module_param(poll_enable, bool, 0444);
 MODULE_PARM_DESC(poll_enable, "Enable polling mode [default 0=no]");
@@ -136,15 +137,28 @@ static irqreturn_t axiom_irq(int irq, void *handle)
 
 // purpose: Function called in IRQ context when device is plugged in.
 // returns: Error code
-#if KERNEL_VERSION(6, 3, 0) <= LINUX_VERSION_CODE
-static int axiom_i2c_probe(struct i2c_client *i2cClient)
-#else
-static int axiom_i2c_probe(struct i2c_client *i2cClient, const struct i2c_device_id *id)
-#endif
+static int axiom_i2c_probe(struct i2c_client *client)
 {
-#if KERNEL_VERSION(6, 3, 0) <= LINUX_VERSION_CODE
+	// const struct i2c_device_id *id = i2c_client_get_device_id(i2cClient);
+
+	struct axiom_data *data;
+
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
+		dev_err(&client->dev, "I2C functionality not Supported\n");
+		return -EIO;
+	}
+
+	axiom = axiom_probe(&axiom_i2c_bus_ops, &client->dev, client->irq,
+			  CY_I2C_DATA_SIZE);
+	
+	if (IS_ERR(axiom))
+		return PTR_ERR(axiom);
+
+	i2c_set_clientdata(client, axiom);
+	
+
+
 	const struct i2c_device_id *id = i2c_client_get_device_id(i2cClient);
-#endif
 	struct device *pDev = &i2cClient->dev;
 	struct axiom_data *data;
 	struct axiom_data_core *data_core;
