@@ -79,6 +79,8 @@ static u16 axiom_read_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8 
 		return 0;
 	}
 
+	pr_debug("Raw return bytes (%u): %*ph\n", length, length, pBuffer);
+	
 	//dev_dbg(pDev, "Payload Data %*ph\n", length, *pBuffer);
 	udelay(data->data_core.bus_holdoff_delay_us);
 	return length;

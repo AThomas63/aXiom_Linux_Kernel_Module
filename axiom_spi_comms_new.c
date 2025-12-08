@@ -28,7 +28,7 @@
 #include <linux/spi/spi.h>
 #include <linux/string.h>
 #include <linux/version.h>
-#include "axiom_core.h"
+#include "axiom_core_new.h"
 
 #define COMMS_HEADER_LENGTH      (4U)
 #define COMMS_PADDING_LENGTH    (32U)

@@ -142,6 +142,14 @@ struct axiom_data_core {
 	u16 (*pAxiomWriteUsage)(void *pAxiomData, u8 usage, u8 page, u16 length, u8 *pBuffer);
 };
 
+struct axiom_bus_ops {
+	u16 bustype;
+	int (*write)(struct device *dev, u8 *xfer_buf, u16 addr, u8 length,
+			const void *values);
+	int (*read)(struct device *dev, u8 *xfer_buf, u16 addr, u8 length,
+			void *values);
+};
+
 extern void axiom_get_dev_info(struct axiom_data_core *data_core, u8 *data);
 extern u8 axiom_populate_usage_table(struct axiom_data_core *data_core, u8 *pRX_data);
 extern u16 usage_to_target_address(struct axiom_data_core *data_core,
