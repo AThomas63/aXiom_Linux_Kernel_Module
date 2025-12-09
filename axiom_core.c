@@ -105,8 +105,10 @@ u8 axiom_populate_usage_table(struct axiom_data_core *data_core, u8 *pRX_data)
 				&pRX_data[offset]);
 
 		// Identify the max report length the module will receive
-		if ((pUsage_Table[usage_id].is_report) && (max_offset > max_report_len))
+		if ((pUsage_Table[usage_id].is_report) && (max_offset > max_report_len)) {
+			dev_info(data_core->pDev, "max_offset: %u\n", max_offset);
 			max_report_len = max_offset;
+		}
 	}
 	data_core->usage_table_populated = true;
 
@@ -367,9 +369,6 @@ bool axiom_process_u41_report_target(struct axiom_data_core *data_core,
 #else
 	slot = pTarget->index;
 #endif
-	pr_debug("U41 Target T%u, slot:%u present:%u, x:%u, y:%u, z:%d\n",
-		pTarget->index, slot, pTarget->present,
-		pTarget->x, pTarget->y, pTarget->z);
 
 	switch (currentState) {
 	default:
@@ -464,6 +463,8 @@ void axiom_process_u41_report(u8 *rx_buf, struct axiom_data_core *data_core)
 
 	target_status = ((rx_buf[1]) | (rx_buf[2] << 8));
 
+	pr_debug("=== u41 report data ===\n");
+
 	// For details on this decoding, consult the appropriate
 	// aXiom's Programmers Guide and Touch Controller Protocol Usage Definitions.
 	for (i = 0; i < U41_MAX_TARGETS; i++) {
@@ -472,6 +473,14 @@ void axiom_process_u41_report(u8 *rx_buf, struct axiom_data_core *data_core)
 		target.x = (rx_buf[(i * 4) + 3]) | (rx_buf[(i * 4) + 4] << 8);
 		target.y = (rx_buf[(i * 4) + 5]) | (rx_buf[(i * 4) + 6] << 8);
 		target.z = (s8)(rx_buf[i + 43]);
+
+		pr_debug("Target %d: x=%u y=%u z=%d present=%d\n",
+	         target.index,
+	         target.x,
+	         target.y,
+	         target.z,
+	         target.present);
+
 		update_done |= axiom_process_u41_report_target(data_core, &target);
 	}
 

@@ -101,11 +101,15 @@ static u16 axiom_write_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8
 	struct i2c_msg msg[2];
 	struct AxiomCmdHeader cmdHeader;
 	int ret;
-	pr_debug("aXiom-core: Write!\n");
+	int i, j;
 
 	cmdHeader.target_address = usage_to_target_address(&data->data_core, usage, page, 0);
 	cmdHeader.length = length;
 	cmdHeader.read = 0;
+	pr_debug("cmdHeader: target_address=0x%02x length=%u read=%u\n",
+         cmdHeader.target_address,
+         cmdHeader.length,
+         cmdHeader.read);
 
 	msg[0].addr = i2cClient->addr;
 	msg[0].flags = 0;
@@ -120,6 +124,13 @@ static u16 axiom_write_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8
 	if (ret != 2) {
 		dev_err(pDev, "Failed I2C write transfer. RC:%d\n", ret);
 		return 0;
+	}
+
+	for (i = 0; i < 2; i++) {
+		pr_debug("I2C msg[%d] buf (len %u): ", i, msg[i].len);
+		for (j = 0; j < msg[i].len; j++)
+			pr_cont("%02x", ((u8 *)msg[i].buf)[j]);
+		pr_cont("\n");
 	}
 
 	udelay(data->data_core.bus_holdoff_delay_us);
@@ -207,16 +218,16 @@ static int axiom_i2c_probe(struct i2c_client *i2cClient, const struct i2c_device
 	for (target = 0; target < U41_MAX_TARGETS; target++)
 		data_core->targets[target].state = Target_State_Not_Present;
 
-	// if (poll_enable == 0) {
-	// 	data->irq_allocated = (0 == (error = devm_request_threaded_irq(pDev, i2cClient->irq,
-	// 										NULL, axiom_irq,
-	// 										IRQF_TRIGGER_LOW | IRQF_ONESHOT,
-	// 										"axiom_irq", data)));
-	// 	if (error != 0) {
-	// 		dev_err(pDev, "Failed to request IRQ %u (error: %d)\n", i2cClient->irq, error);
-	// 		return error;
-	// 	}
-	// }
+	if (poll_enable == 0) {
+		data->irq_allocated = (0 == (error = devm_request_threaded_irq(pDev, i2cClient->irq,
+											NULL, axiom_irq,
+											IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+											"axiom_irq", data)));
+		if (error != 0) {
+			dev_err(pDev, "Failed to request IRQ %u (error: %d)\n", i2cClient->irq, error);
+			return error;
+		}
+	}
 	dev_info(pDev, "Probe End\n");
 
 	return 0;

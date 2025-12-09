@@ -25,7 +25,8 @@
 #include <linux/input/mt.h>
 #include <linux/crc16.h>
 #include <linux/slab.h>
-
+#include <linux/interrupt.h>
+#include <linux/irqreturn.h>
 /**
  * aXiom devices are typically configured to report
  * touches at a rate of 100Hz (10ms). For systems
@@ -39,38 +40,6 @@
 #define POLL_INTERVAL_DEFAULT_MS	100
 
 #include "axiom_core_new.h"
-
-static int axiom_init_dev_info(struct axiom *ax)
-{
-	// Read page 0 of u31
-	ax->bus_ops->read(ax->dev, ax->xfer_buf, 0x0,
-				sizeof(ax->dev_info), (u8 *) &ax->dev_info);
-	
-	dev_info(ax->dev, "Firmware Info:\n");
-	dev_info(ax->dev, "  Bootloader Mode: %u\n", ax->dev_info.mode);
-	dev_info(ax->dev, "  Device ID      : %04x\n", ax->dev_info.device_id);
-	dev_info(ax->dev, "  Firmware Rev   : %02x.%02x\n", ax->dev_info.runtime_fw_rev_major, ax->dev_info.runtime_fw_rev_minor);
-	dev_info(ax->dev, "  Bootloader Rev : %02x.%02x\n", ax->dev_info.bootloader_fw_rev_major, ax->dev_info.bootloader_fw_rev_minor);
-	dev_info(ax->dev, "  Silicon        : %02x\n", ax->dev_info.jedec_id);
-	dev_info(ax->dev, "  Num Usages     : %04x\n", ax->dev_info.num_usages);
-
-	// Read the second page of u31 to get the usage table
-	ax->bus_ops->read(ax->dev, ax->xfer_buf, 0x100,
-				sizeof(ax->usage_table[0]) * ax->dev_info.num_usages, (u8 *) &ax->usage_table);
-
-	dev_info(ax->dev, "Usage Table:\n");
-	for (int i = 0; i < U31_MAX_USAGES; i++) {
-		const struct u31_usage_entry *u = &ax->usage_table[i];
- 
-		dev_info(ax->dev, "  Usage: u%02x Rev: %3u    Page: 0x%02x00 Num Pages: %3u\n",
-			u->usage_num,
-			u->uifrevision,
-			u->start_page,
-			u->num_pages);
-	}
-
-	return 0;
-}
 
 
 static int axiom_set_capabilities(struct input_dev *input_dev)
@@ -116,6 +85,186 @@ static int axiom_set_capabilities(struct input_dev *input_dev)
 	return 0;
 }
 
+static struct u31_usage_entry *usage_find_entry(struct axiom *ax, u8 usage)
+{
+	u16 i;
+
+	for (i = 0; i < ax->dev_info.num_usages; i++) {
+		if (ax->usage_table[i].usage_num == usage)
+			return &ax->usage_table[i];
+	}
+
+	pr_err("aXiom-core: Usage 0x%02x not found in usage table\n", usage);
+	return ERR_PTR(-EINVAL);
+}
+
+static int axiom_init_dev_info(struct axiom *ax)
+{	
+	int i;
+	struct u31_usage_entry *u;
+	int err;
+	u16 report_len;
+
+	/* Read page 0 of u31 */
+	err = ax->bus_ops->read(ax->dev, ax->xfer_buf, 0x0,
+				sizeof(ax->dev_info), (u8 *) &ax->dev_info);
+	if (err)
+		return -EIO;
+
+	dev_info(ax->dev, "Firmware Info:\n");
+	dev_info(ax->dev, "  Bootloader Mode: %u\n", ax->dev_info.mode);
+	dev_info(ax->dev, "  Device ID      : %04x\n", ax->dev_info.device_id);
+	dev_info(ax->dev, "  Firmware Rev   : %02x.%02x\n", ax->dev_info.runtime_fw_rev_major, ax->dev_info.runtime_fw_rev_minor);
+	dev_info(ax->dev, "  Bootloader Rev : %02x.%02x\n", ax->dev_info.bootloader_fw_rev_major, ax->dev_info.bootloader_fw_rev_minor);
+	dev_info(ax->dev, "  Silicon        : %02x\n", ax->dev_info.jedec_id);
+	dev_info(ax->dev, "  Num Usages     : %04x\n", ax->dev_info.num_usages);
+
+	/* Read the second page of u31 to get the usage table */ 
+	err = ax->bus_ops->read(ax->dev, ax->xfer_buf, 0x100,
+				sizeof(ax->usage_table[0]) * ax->dev_info.num_usages, (u8 *) &ax->usage_table);
+	if (err)
+		return -EIO;
+
+	dev_info(ax->dev, "Usage Table:\n");
+	for (i = 0; i < ax->dev_info.num_usages; i++) {
+		u = &ax->usage_table[i];
+ 
+		dev_info(ax->dev, "  Usage: u%02x  Rev: %3u  Page: 0x%02x00  Num Pages: %3u\n",
+			u->usage_num,
+			u->uifrevision,
+			u->start_page,
+			u->num_pages);
+		
+		// Convert words to bytes
+		report_len = (u->max_offset + 1) * 2;
+		if ((u->usage_type == REPORT) && (report_len > ax->max_report_len)) {
+			ax->max_report_len = report_len;
+		}
+	}
+	dev_info(ax->dev, "Max Report Length: %u\n", ax->max_report_len);
+
+	/* Set u34 address to allow direct access to report reading address */
+	u = usage_find_entry(ax, 0x34);
+	if (IS_ERR(u))
+		return PTR_ERR(u);
+	ax->u34_address = u->start_page << 8;
+
+	return 0;
+}
+
+static int axiom_rebaseline(struct axiom *ax)
+{
+	struct u31_usage_entry *u;
+	u8 buffer[8] = {0};
+	int ret;
+
+	u = usage_find_entry(ax, 0x02);
+	if (IS_ERR(u))
+		return PTR_ERR(u);
+
+		
+	/* Rebaseline request */
+	buffer[0] = 0x03;
+
+	ret = ax->bus_ops->write(ax->dev, ax->xfer_buf, u->start_page << 8,
+		sizeof(buffer), buffer);
+
+	if (ret) {
+		dev_err(ax->dev, "Rebaseline failed\n");
+		return ret;
+	}
+	
+	dev_info(ax->dev, "Capture Baseline Requested\n");
+	return 0;
+}
+
+static bool axiom_process_u41_report_target(struct axiom *ax, const struct u41_report *r)
+{
+	return false;
+}
+
+static int axiom_process_u41_report(struct axiom *ax, u8 *report)
+{
+	
+	const struct u41_report *r = (const struct u41_report *)report;
+	bool updated = false;
+
+	pr_debug("=== u41 report data ===\n");
+
+	for (int i = 0; i < U41_MAX_TARGETS; i++) {
+
+		pr_debug("Target %d: x=%u y=%u z=%d present=%d\n",
+		         i,
+		         r->coord[i].x,
+		         r->coord[i].y,
+		         r->z[i],
+		         !!((r->target_present >> i) & 1));
+
+		updated |= axiom_process_u41_report_target(ax, r);
+	}
+
+	if (updated)
+		input_sync(ax->input);
+	
+	return 0;
+}
+
+static int axiom_process_report(struct axiom *ax, u8 *report)
+{
+	struct u34_report_header *u34_report = (struct u34_report_header *) report;
+	u16 crc_calc;
+	u16 crc_report;
+	u8 len;
+	int ret;
+
+	len = u34_report->report_length << 1;
+	if (u34_report->report_length == 0) {
+		dev_err(ax->dev, "Zero length report discarded.\n");
+		return -EBADMSG;
+	}
+
+	dev_dbg(ax->dev, "Payload Data %*ph\n", len, report);
+
+	crc_report = (report[len - 1] << 8) | (report[len - 2]);
+	crc_calc = crc16(0, report, (len - 2)); // Length is 16 bit words and remove the size of the CRC16 itself
+
+	if (crc_calc != crc_report) {
+		dev_err(ax->dev, "CRC mismatch! Expected: %04X, Calculated CRC: %04X. Report discarded.\n", crc_report, crc_calc);
+		return -EBADMSG;
+	}
+
+	switch (u34_report->report_usage) {
+	case AX_2DCTS_REPORT_ID:
+		// TODO check revision of report here 
+		ret = axiom_process_u41_report(ax, u34_report->payload_buf);
+		break;
+	
+	
+	}
+
+	return ret;
+
+}
+
+static irqreturn_t axiom_irq(int irq, void *handle)
+{	
+	struct axiom *ax = handle;
+	int error;
+	u8 buffer[MAX_REPORT_LEN];
+
+	/* Read touch reports from u34 */
+	error = ax->bus_ops->read(ax->dev, ax->xfer_buf, ax->u34_address,
+				ax->max_report_len, buffer);
+	if (error)
+		goto out;
+	
+	axiom_process_report(ax, buffer);
+	
+out:
+	return IRQ_HANDLED;
+
+}
+
 struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 			    struct device *dev, int irq, size_t xfer_buf_size)
 {
@@ -144,13 +293,25 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 
 	axiom_set_capabilities(input_dev);
 
-	axiom_init_dev_info(ax);
+	error = axiom_init_dev_info(ax);
+	if (error) {
+		dev_err(ax->dev, "Failed to read device info, err: %d\n", error);	
+		return ERR_PTR(error);
+	}
 
+	error = axiom_rebaseline(ax);
+	if (error)
+		return ERR_PTR(error);
 
-
-
-
-
+	error = devm_request_threaded_irq(ax->dev, ax->irq,
+									NULL, axiom_irq,
+									IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+									"axiom_irq", ax);
+	if (error) {
+		dev_err(ax->dev, "Failed to request IRQ %d, err: %d\n",
+			ax->irq, error);
+		return ERR_PTR(error);
+	}
 
 
 	error = input_register_device(input_dev);

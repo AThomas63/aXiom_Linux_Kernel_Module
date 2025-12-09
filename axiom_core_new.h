@@ -31,26 +31,48 @@
 // u31 has 2 pages for usage table entries. (2 * AX_COMMS_PAGE_SIZE) / U31_BYTES_PER_USAGE = 85
 #define U31_MAX_USAGES              (85U)
 #define U41_MAX_TARGETS             (10U)
-#define U46_AUX_CHANNELS            (4U)
-#define U46_AUX_MASK                (0xFFFU)
-#define U31_BYTES_PER_USAGE         (6U)
-#define USAGE_2DCTS_REPORT_ID       (0x41U)
-#define USAGE_2AUX_REPORT_ID        (0x46U)
-#define USAGE_2HB_REPORT_ID         (0x01U)
-#define PROX_LEVEL                  (-128)
-#define AX_U31_PAGE0_LENGTH         (0x0C)
-// For details check TNxAN00035: "aXiom_Touch_Controller_Comms_Protocol"
-#define AX_COMMS_WRITE              (0x00U)
-#define AX_COMMS_READ               (0x80U)
-#define AX_COMMS_BYTES_MASK         (0xFFU)
+// #define U46_AUX_CHANNELS            (4U)
+// #define U46_AUX_MASK                (0xFFFU)
+// #define U31_BYTES_PER_USAGE         (6U)
+// #define USAGE_2DCTS_REPORT_ID       (0x41U)
+// #define USAGE_2AUX_REPORT_ID        (0x46U)
+// #define USAGE_2HB_REPORT_ID         (0x01U)
+// #define PROX_LEVEL                  (-128)
+// #define AX_U31_PAGE0_LENGTH         (0x0C)
+// // For details check TNxAN00035: "aXiom_Touch_Controller_Comms_Protocol"
+// #define AX_COMMS_WRITE              (0x00U)
+// #define AX_COMMS_READ               (0x80U)
+// #define AX_COMMS_BYTES_MASK         (0xFFU)
 
-#define COMMS_MAX_USAGE_PAGES       (3)
-#define AX_COMMS_PAGE_SIZE          (256)
+// #define COMMS_MAX_USAGE_PAGES       (3)
+// #define AX_COMMS_PAGE_SIZE          (256)
 
-#define COMMS_OVERFLOW_MSK          (0x80)
-#define COMMS_REPORT_LEN_MSK        (0x7F)
+// #define COMMS_OVERFLOW_MSK          (0x80)
+// #define COMMS_REPORT_LEN_MSK        (0x7F)
+
+#define MAX_REPORT_LEN              (64) // TODO to be determined
+
 
 #include <linux/input.h>
+
+enum report_ids_e {
+    AX_2DCTS_REPORT_ID = 0x41,
+};
+
+enum axiom_mode_e {
+	AX_RUNTIME_STATE = 0,
+	AX_BOOTLOADER_STATE = 1,
+};
+
+enum usage_type_e {
+        UNKNOWN = 0,
+        OTHER = 1,
+        REPORT = 2,
+        REGISTER = 3,
+        REGISTER_READ_ONLY_ = 4,
+        CDU = 5,
+        CDU_READ_ONLY_ = 6,
+};
 
 struct axiom_device_info {
     u16 device_id : 15;
@@ -71,15 +93,13 @@ struct axiom_device_info {
 _Static_assert(sizeof(struct axiom_device_info) == 12, "axiom_device_info must be 12 bytes");
 
 struct u31_usage_entry {
-    uint16_t usage_num : 8;
-    uint16_t start_page : 8;
-
-    uint16_t num_pages : 8;
-    uint16_t max_offset : 7;
-    uint16_t offset_type : 1;
-
-    uint16_t uifrevision : 8;
-    uint16_t usage_type : 8;
+    u16 usage_num : 8;
+    u16 start_page : 8;
+    u16 num_pages : 8;
+    u16 max_offset : 7;
+    u16 offset_type : 1;
+    u16 uifrevision : 8;
+    u16 usage_type : 8;
 };
 _Static_assert(sizeof(struct u31_usage_entry) == 6, "u31_usage_entry must be 6 bytes");
 
@@ -90,26 +110,20 @@ struct AxiomCmdHeader {
 	u8  writeData[];
 };
 
-// purpose: Describes parameters of a specific usage, essenstially a single
-//          element of the "Usage Table"
-// struct usage_Entry {
-// 	u8 id;
-// 	u8 is_report;
-// 	u8 start_page;
-// 	u8 num_pages;
-// };
-
 struct axiom_bus_ops {
 	u16 bustype;
 	int (*write)(struct device *dev, u8 *xfer_buf, u16 addr, u16 length,
-			const void *values);
+			void *values);
 	int (*read)(struct device *dev, u8 *xfer_buf, u16 addr, u16 length,
 			void *values);
 };
 
-enum axiom_state {
-	AX_ACTIVE_STATE,
-	AX_BL_STATE,
+struct u41_target {
+	u8  index;
+	u8  present;
+	u16 x;
+	u16 y;
+	s8  z;
 };
 
 struct axiom {
@@ -119,10 +133,37 @@ struct axiom {
 	const struct axiom_bus_ops *bus_ops;
 	struct axiom_device_info dev_info;
 	struct u31_usage_entry usage_table[U31_MAX_USAGES];
-	enum axiom_state state;
+	u16 max_report_len;
+    u16 u34_address;
+
+    struct u41_target u41_targets[U41_MAX_TARGETS];
 
 	u8 xfer_buf[] ____cacheline_aligned;
 };
+
+struct u34_report_header {
+	u16 report_length : 7;
+	u16 overflow      : 1;
+	u16 report_usage  : 8;
+
+	/* all other reports derive from this buffer */
+	u8 payload_buf[];
+};
+_Static_assert(sizeof(struct u34_report_header) == 2, "u34_report_header must be 2 bytes");
+
+
+struct u41_report {
+    u16 target_present    : 10;
+    u16 unused            : 6;
+
+	struct {
+		u16 x;
+		u16 y;
+	} coord[U41_MAX_TARGETS];
+
+	s8 z[U41_MAX_TARGETS];
+};
+_Static_assert(sizeof(struct u41_report) == (2 + (5 * U41_MAX_TARGETS)), "u41_report size mismatch");
 
 struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 			    struct device *dev, int irq, size_t xfer_buf_size);

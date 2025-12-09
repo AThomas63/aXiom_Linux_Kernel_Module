@@ -49,7 +49,8 @@ MODULE_PARM_DESC(poll_interval, "Polling period in ms [default = 100]");
 static int axiom_i2c_read_block_data(struct device *dev, u8 *xfer_buf,
 				      u16 addr, u16 length, void *values)
 {	
-	int retval;
+	(void)xfer_buf;
+	int error;
 	struct i2c_client *client = to_i2c_client(dev);
 	struct AxiomCmdHeader cmdHeader = {
 		.target_address = addr,
@@ -72,10 +73,12 @@ static int axiom_i2c_read_block_data(struct device *dev, u8 *xfer_buf,
 		},
 	};
 
-	retval = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
-	if (retval < 0)
-		return retval;
-
+	error = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
+	if (error < 0) {
+		dev_err(dev, "I2C transfer error: %d\n", error);
+		return error;
+	}
+	
 	for (int i = 0; i < 2; i++) {
 		pr_debug("I2C msg[%d] buf (len %u): ", i, msgs[i].len);
 		for (int j = 0; j < msgs[i].len; j++)
@@ -84,33 +87,53 @@ static int axiom_i2c_read_block_data(struct device *dev, u8 *xfer_buf,
 	}
 	dev_dbg(dev, "I2C Response (%u bytes): %*ph\n", length, length, values);
 
-	return retval != ARRAY_SIZE(msgs) ? -EIO : 0;
+	return error != ARRAY_SIZE(msgs) ? -EIO : 0;
 }
 
 static int axiom_i2c_write_block_data(struct device *dev, u8 *xfer_buf,
-				       u16 addr, u16 length, const void *values)
-{
+				       u16 addr, u16 length, void *values)
+{	
+	(void)xfer_buf;
+	int error;
 	struct i2c_client *client = to_i2c_client(dev);
-	u8 client_addr = client->addr | ((addr >> 8) & 0x1);
-	u8 addr_lo = addr & 0xFF;
+	struct AxiomCmdHeader cmdHeader = {
+		.target_address = addr,
+		.length = length,
+		.read = 0
+	};
+	int i, j;
+	pr_debug("cmdHeader: target_address=0x%02x length=%u read=%u\n",
+         cmdHeader.target_address,
+         cmdHeader.length,
+         cmdHeader.read);
+
 	struct i2c_msg msgs[] = {
 		{
-			.addr = client_addr,
+			.addr = client->addr,
 			.flags = 0,
-			.len = length + 1,
-			.buf = xfer_buf,
+			.len = sizeof(cmdHeader),
+			.buf = (u8 *)&cmdHeader,
+		},
+		{
+			.addr = client->addr,
+			.flags = 0,
+			.len = length,
+			.buf = values,
 		},
 	};
-	int retval;
 
-	xfer_buf[0] = addr_lo;
-	memcpy(&xfer_buf[1], values, length);
+	error = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
+	if (error < 0)
+		return error;
 
-	retval = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
-	if (retval < 0)
-		return retval;
+	for (i = 0; i < ARRAY_SIZE(msgs); i++) {
+		pr_debug("I2C write msg[%d] buf (len %u): ", i, msgs[i].len);
+		for (j = 0; j < msgs[i].len; j++)
+			pr_cont("%02x", ((u8 *)msgs[i].buf)[j]);
+		pr_cont("\n");
+	}
 
-	return retval != ARRAY_SIZE(msgs) ? -EIO : 0;
+	return error != ARRAY_SIZE(msgs) ? -EIO : 0;
 }
 
 static const struct axiom_bus_ops axiom_i2c_bus_ops = {
