@@ -52,20 +52,43 @@
 
 #include <linux/input.h>
 
-// purpose: Holds device specific information
 struct axiom_device_info {
-	u8 bootloader_mode;
-	u16 device_id;
-	u8 fw_major;
-	u8 fw_minor;
-	u16 fw_info_extra;
-	u8 bootloader_fw_ver_major;
-	u8 bootloader_fw_ver_minor;
-	u16 jedec_id;
-	u8 num_usages;
-	u8 silicon_revision;
+    u16 device_id : 15;
+    u16 mode      : 1;
+    u16 runtime_fw_rev_minor : 8;
+    u16 runtime_fw_rev_major : 8;
+    u16 device_build_variant : 6;
+    u16 pad_bit6             : 1;
+    u16 runtime_fw_status    : 1;
+    u16 tcp_revision         : 8;
+    u16 bootloader_fw_rev_minor : 8;
+    u16 bootloader_fw_rev_major : 8;
+    u16 jedec_id;
+    u16 num_usages           : 8;
+    u16 silicon_revision     : 4;
+    u16 runtime_fw_rev_patch : 4;
 };
+_Static_assert(sizeof(struct axiom_device_info) == 12, "axiom_device_info must be 12 bytes");
 
+struct u31_usage_entry {
+    uint16_t usage_num : 8;
+    uint16_t start_page : 8;
+
+    uint16_t num_pages : 8;
+    uint16_t max_offset : 7;
+    uint16_t offset_type : 1;
+
+    uint16_t uifrevision : 8;
+    uint16_t usage_type : 8;
+};
+_Static_assert(sizeof(struct u31_usage_entry) == 6, "u31_usage_entry must be 6 bytes");
+
+struct AxiomCmdHeader {
+	u16 target_address;
+	u16 length  :15;
+	u16 read    :1;
+	u8  writeData[];
+};
 
 // purpose: Describes parameters of a specific usage, essenstially a single
 //          element of the "Usage Table"
@@ -78,9 +101,9 @@ struct axiom_device_info {
 
 struct axiom_bus_ops {
 	u16 bustype;
-	int (*write)(struct device *dev, u8 *xfer_buf, u16 addr, u8 length,
+	int (*write)(struct device *dev, u8 *xfer_buf, u16 addr, u16 length,
 			const void *values);
-	int (*read)(struct device *dev, u8 *xfer_buf, u16 addr, u8 length,
+	int (*read)(struct device *dev, u8 *xfer_buf, u16 addr, u16 length,
 			void *values);
 };
 
@@ -95,6 +118,7 @@ struct axiom {
 	struct input_dev *input;
 	const struct axiom_bus_ops *bus_ops;
 	struct axiom_device_info dev_info;
+	struct u31_usage_entry usage_table[U31_MAX_USAGES];
 	enum axiom_state state;
 
 	u8 xfer_buf[] ____cacheline_aligned;

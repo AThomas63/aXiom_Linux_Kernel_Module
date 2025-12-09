@@ -9,7 +9,7 @@
 #
 
 echo Compiling source...
-make -j4 all USE_NEW=1
+make -j4 all
 rc=$?
 if [ ! ${rc} -eq 0 ]; then
 	echo make failed with error ${rc}

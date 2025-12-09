@@ -42,13 +42,32 @@
 
 static int axiom_init_dev_info(struct axiom *ax)
 {
-	u8 buffer[100]; // TODO use correct buffer
-
 	// Read page 0 of u31
 	ax->bus_ops->read(ax->dev, ax->xfer_buf, 0x0,
-				AX_U31_PAGE0_LENGTH, buffer);
+				sizeof(ax->dev_info), (u8 *) &ax->dev_info);
 	
-	pr_debug("Raw return bytes (%u): %*ph\n", AX_U31_PAGE0_LENGTH, AX_U31_PAGE0_LENGTH, buffer);
+	dev_info(ax->dev, "Firmware Info:\n");
+	dev_info(ax->dev, "  Bootloader Mode: %u\n", ax->dev_info.mode);
+	dev_info(ax->dev, "  Device ID      : %04x\n", ax->dev_info.device_id);
+	dev_info(ax->dev, "  Firmware Rev   : %02x.%02x\n", ax->dev_info.runtime_fw_rev_major, ax->dev_info.runtime_fw_rev_minor);
+	dev_info(ax->dev, "  Bootloader Rev : %02x.%02x\n", ax->dev_info.bootloader_fw_rev_major, ax->dev_info.bootloader_fw_rev_minor);
+	dev_info(ax->dev, "  Silicon        : %02x\n", ax->dev_info.jedec_id);
+	dev_info(ax->dev, "  Num Usages     : %04x\n", ax->dev_info.num_usages);
+
+	// Read the second page of u31 to get the usage table
+	ax->bus_ops->read(ax->dev, ax->xfer_buf, 0x100,
+				sizeof(ax->usage_table[0]) * ax->dev_info.num_usages, (u8 *) &ax->usage_table);
+
+	dev_info(ax->dev, "Usage Table:\n");
+	for (int i = 0; i < U31_MAX_USAGES; i++) {
+		const struct u31_usage_entry *u = &ax->usage_table[i];
+ 
+		dev_info(ax->dev, "  Usage: u%02x Rev: %3u    Page: 0x%02x00 Num Pages: %3u\n",
+			u->usage_num,
+			u->uifrevision,
+			u->start_page,
+			u->num_pages);
+	}
 
 	return 0;
 }
