@@ -111,7 +111,7 @@ struct u41_Target_Report {
 };
 
 // purpose: I2C & SPI command header structure
-struct AxiomCmdHeader {
+struct axiom_cmd_header {
 	u16 target_address;
 	u16 length  :15;
 	u16 read    :1;

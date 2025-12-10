@@ -5,8 +5,10 @@ KERNEL_LOC = /lib/modules/$(shell uname -r)/build/
 ifeq ($(USE_NEW),1)
     # Only build new I2C module
     obj-m := axiom_i2c.o
+    obj-m += axiom_spi.o
 
     axiom_i2c-objs := axiom_core_new.o axiom_i2c_comms_new.o
+    axiom_spi-objs := axiom_core_new.o axiom_spi_comms_new.o
 else
     obj-m += axiom_usb.o
     obj-m += axiom_spi.o

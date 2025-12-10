@@ -59,7 +59,7 @@ static u16 axiom_read_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8 
 	struct spi_transfer xfr_padding;
 	struct spi_transfer xfr_payload;
 	struct spi_message msg;
-	struct AxiomCmdHeader cmdHeader;
+	struct axiom_cmd_header cmdHeader;
 	s32 rc;
 
 	memset(&xfr_header,  0, sizeof(xfr_header));
@@ -97,6 +97,10 @@ static u16 axiom_read_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8 
 		return 0;
 	}
 
+	dev_dbg(&spi->dev,"SPI Header (%lu bytes): %*ph\n",sizeof(cmdHeader),(int)sizeof(cmdHeader),&cmdHeader);
+	dev_dbg(&spi->dev, "SPI Padding (%lu bytes): %*ph\n", sizeof(data->pad_buf), (int)sizeof(data->pad_buf), data->pad_buf);
+	dev_dbg(&spi->dev, "SPI Payload (%u bytes): %*ph\n", length, length, pBuffer);
+
 	udelay(data->data_core.bus_holdoff_delay_us);
 	return length;
 }
@@ -111,7 +115,7 @@ static u16 axiom_write_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8
 	struct spi_transfer xfr_padding;
 	struct spi_transfer xfr_payload;
 	struct spi_message msg;
-	struct AxiomCmdHeader cmdHeader;
+	struct axiom_cmd_header cmdHeader;
 	s32 rc;
 
 	memset(&xfr_header,  0, sizeof(xfr_header));

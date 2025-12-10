@@ -103,7 +103,7 @@ struct u31_usage_entry {
 };
 _Static_assert(sizeof(struct u31_usage_entry) == 6, "u31_usage_entry must be 6 bytes");
 
-struct AxiomCmdHeader {
+struct axiom_cmd_header {
 	u16 target_address;
 	u16 length  :15;
 	u16 read    :1;

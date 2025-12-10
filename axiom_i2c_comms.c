@@ -55,7 +55,7 @@ static u16 axiom_read_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8 
 	struct i2c_client *i2cClient = data->i2cClient;
 	struct device *pDev = data->data_core.pDev;
 	struct i2c_msg msg[2];
-	struct AxiomCmdHeader cmdHeader;
+	struct axiom_cmd_header cmdHeader;
 	int ret;
 
 	// Build the header
@@ -99,7 +99,7 @@ static u16 axiom_write_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8
 	struct i2c_client *i2cClient = data->i2cClient;
 	struct device *pDev = data->data_core.pDev;
 	struct i2c_msg msg[2];
-	struct AxiomCmdHeader cmdHeader;
+	struct axiom_cmd_header cmdHeader;
 	int ret;
 	int i, j;
 

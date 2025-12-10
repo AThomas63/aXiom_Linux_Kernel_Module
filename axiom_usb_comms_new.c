@@ -40,7 +40,7 @@ struct AxiomUsbCmdHeader {
 	u8 AxiomBridgeCmd;
 	u8 wrLen;
 	u8 rdLen;
-	struct AxiomCmdHeader i2c;
+	struct axiom_cmd_header i2c;
 };
 
 // purpose: Helper function to calculate how many USB transfers (chunks)
@@ -143,7 +143,7 @@ static u16 axiom_read_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8 
 		memset(&data->tx_buf[0], 0, TXBUFFER_SIZE);
 		pUsbCmd->usbReportId = 0;
 		pUsbCmd->AxiomBridgeCmd = AX_TBP_I2C_DEVICE1;
-		pUsbCmd->wrLen = sizeof(struct AxiomCmdHeader);
+		pUsbCmd->wrLen = sizeof(struct axiom_cmd_header);
 		pUsbCmd->rdLen = bytes_to_read;
 		pUsbCmd->i2c.target_address = usage_to_target_address(&data->data_core, usage, chunkPage, bytes_read);
 		pUsbCmd->i2c.length = bytes_to_read;
@@ -188,7 +188,7 @@ static u16 axiom_write_usage(void *pAxiomData, u8 usage, u8 page, u16 length, u8
 	memset(&data->tx_buf[0], 0, TXBUFFER_SIZE);
 	pUsbCmd->usbReportId = 0;
 	pUsbCmd->AxiomBridgeCmd = AX_TBP_I2C_DEVICE1;
-	pUsbCmd->wrLen = sizeof(struct AxiomCmdHeader);
+	pUsbCmd->wrLen = sizeof(struct axiom_cmd_header);
 	pUsbCmd->rdLen = length;
 	pUsbCmd->i2c.target_address = usage_to_target_address(&data->data_core, usage, page, 0);
 	pUsbCmd->i2c.length = length;

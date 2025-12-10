@@ -303,10 +303,10 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 	if (error)
 		return ERR_PTR(error);
 
-	error = devm_request_threaded_irq(ax->dev, ax->irq,
-									NULL, axiom_irq,
-									IRQF_TRIGGER_LOW | IRQF_ONESHOT,
-									"axiom_irq", ax);
+	// error = devm_request_threaded_irq(ax->dev, ax->irq,
+	// 								NULL, axiom_irq,
+	// 								IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+	// 								"axiom_irq", ax);
 	if (error) {
 		dev_err(ax->dev, "Failed to request IRQ %d, err: %d\n",
 			ax->irq, error);

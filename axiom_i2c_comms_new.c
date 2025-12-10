@@ -52,7 +52,7 @@ static int axiom_i2c_read_block_data(struct device *dev, u8 *xfer_buf,
 	(void)xfer_buf;
 	int error;
 	struct i2c_client *client = to_i2c_client(dev);
-	struct AxiomCmdHeader cmdHeader = {
+	struct axiom_cmd_header cmd_header = {
 		.target_address = addr,
 		.length = length,
 		.read = 1
@@ -62,8 +62,8 @@ static int axiom_i2c_read_block_data(struct device *dev, u8 *xfer_buf,
 		{
 			.addr = client->addr,
 			.flags = 0,
-			.len = sizeof(cmdHeader),
-			.buf = (u8 *)&cmdHeader,
+			.len = sizeof(cmd_header),
+			.buf = (u8 *)&cmd_header,
 		},
 		{
 			.addr = client->addr,
@@ -79,7 +79,7 @@ static int axiom_i2c_read_block_data(struct device *dev, u8 *xfer_buf,
 		return error;
 	}
 	
-	for (int i = 0; i < 2; i++) {
+	for (int i = 0; i < ARRAY_SIZE(msgs); i++) {
 		pr_debug("I2C msg[%d] buf (len %u): ", i, msgs[i].len);
 		for (int j = 0; j < msgs[i].len; j++)
 			pr_cont("%02x", ((u8 *)msgs[i].buf)[j]);
@@ -96,23 +96,18 @@ static int axiom_i2c_write_block_data(struct device *dev, u8 *xfer_buf,
 	(void)xfer_buf;
 	int error;
 	struct i2c_client *client = to_i2c_client(dev);
-	struct AxiomCmdHeader cmdHeader = {
+	struct axiom_cmd_header cmd_header = {
 		.target_address = addr,
 		.length = length,
 		.read = 0
 	};
-	int i, j;
-	pr_debug("cmdHeader: target_address=0x%02x length=%u read=%u\n",
-         cmdHeader.target_address,
-         cmdHeader.length,
-         cmdHeader.read);
 
 	struct i2c_msg msgs[] = {
 		{
 			.addr = client->addr,
 			.flags = 0,
-			.len = sizeof(cmdHeader),
-			.buf = (u8 *)&cmdHeader,
+			.len = sizeof(cmd_header),
+			.buf = (u8 *)&cmd_header,
 		},
 		{
 			.addr = client->addr,
@@ -123,12 +118,14 @@ static int axiom_i2c_write_block_data(struct device *dev, u8 *xfer_buf,
 	};
 
 	error = i2c_transfer(client->adapter, msgs, ARRAY_SIZE(msgs));
-	if (error < 0)
+	if (error < 0) {
+		dev_err(dev, "I2C transfer error: %d\n", error);
 		return error;
+	}
 
-	for (i = 0; i < ARRAY_SIZE(msgs); i++) {
+	for (int i = 0; i < ARRAY_SIZE(msgs); i++) {
 		pr_debug("I2C write msg[%d] buf (len %u): ", i, msgs[i].len);
-		for (j = 0; j < msgs[i].len; j++)
+		for (int j = 0; j < msgs[i].len; j++)
 			pr_cont("%02x", ((u8 *)msgs[i].buf)[j]);
 		pr_cont("\n");
 	}
