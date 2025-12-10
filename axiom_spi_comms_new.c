@@ -15,7 +15,7 @@
  *
  */
 
-#define DEBUG   // Enable debug messages
+#define DEBUG // Enable debug messages
 
 #include <linux/kernel.h>
 #include <linux/kobject.h>
@@ -32,7 +32,6 @@
 #include <linux/version.h>
 #include "axiom_core_new.h"
 
-#define SPI_DATA_SIZE 		128 // TODO determine best length here
 #define SPI_PADDING_LEN 	32
 
 static bool poll_enable;
@@ -43,12 +42,8 @@ static int poll_interval;
 module_param(poll_interval, int, 0444);
 MODULE_PARM_DESC(poll_interval, "Polling period in ms [default = 100]");
 
-enum spi_op_e {
-	AX_SPI_WR_OP,
-	AX_SPI_RD_OP
-};
 
-static int axiom_spi_read_block_data(struct device *dev, u8 *xfer_buf,
+static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 				      u16 addr, u16 length, void *values)
 {
 	int retval;
@@ -60,7 +55,7 @@ static int axiom_spi_read_block_data(struct device *dev, u8 *xfer_buf,
 	struct axiom_cmd_header cmd_header = {
 		.target_address = addr,
 		.length = length,
-		.read = 1
+		.read = op
 	};
 	u8 pad_buf[SPI_PADDING_LEN] = {0};
 
@@ -75,8 +70,18 @@ static int axiom_spi_read_block_data(struct device *dev, u8 *xfer_buf,
 	xfr_padding.tx_buf = pad_buf;
 	xfr_padding.len    = sizeof(pad_buf);
 
-	xfr_payload.rx_buf = values;
-	xfr_payload.len    = length;
+	switch (op) {
+	case AX_WR_OP:
+		xfr_payload.tx_buf = values;
+		break;
+	case AX_RD_OP:
+		xfr_payload.rx_buf = values;
+		break;
+	default:
+		dev_err(dev, "%s: invalid operation: %d\n", __func__, op);
+		return -EINVAL;
+	}
+	xfr_payload.len = length;
 
 	spi_message_init(&msg);
 	spi_message_add_tail(&xfr_header, &msg);
@@ -99,64 +104,16 @@ static int axiom_spi_read_block_data(struct device *dev, u8 *xfer_buf,
 	return 0;
 }
 
-static int axiom_spi_write_block_data(struct device *dev, u8 *xfer_buf,
-				       u16 addr, u16 length, void *values)
+static int axiom_spi_read_block_data(struct device *dev, u16 addr, u16 length, void *values)
 {
-	int retval;
-	struct spi_device *spi = to_spi_device(dev);
-	struct spi_transfer xfr_header;
-	struct spi_transfer xfr_padding;
-	struct spi_transfer xfr_payload;
-	struct spi_message msg;
-	struct axiom_cmd_header cmd_header = {
-		.target_address = addr,
-		.length = length,
-		.read = 1
-	};
-	u8 pad_buf[SPI_PADDING_LEN] = {0};
-
-	memset(&xfr_header,  0, sizeof(xfr_header));
-	memset(&xfr_padding, 0, sizeof(xfr_padding));
-	memset(&xfr_payload, 0, sizeof(xfr_payload));
-
-	/* Setup the SPI transfer operations */
-	xfr_header.tx_buf = &cmd_header;
-	xfr_header.len    = sizeof(cmd_header);
-	
-	xfr_padding.tx_buf = pad_buf;
-	xfr_padding.len    = sizeof(pad_buf);
-
-	xfr_payload.tx_buf = values;
-	xfr_payload.len    = length;
-
-	spi_message_init(&msg);
-	spi_message_add_tail(&xfr_header, &msg);
-	spi_message_add_tail(&xfr_padding, &msg);
-	spi_message_add_tail(&xfr_payload, &msg);
-
-	retval = spi_sync(spi, &msg);
-	if (retval < 0) {
-		dev_err(&spi->dev, "Failed to SPI transfer, error: %d\n", retval);
-		return 0;
-	}
-
-	// udelay(data->data_core.bus_holdoff_delay_us);
-	udelay(250);
-	
-	return 0;
+	return axiom_spi_transfer(dev, AX_RD_OP, addr, length, values);
 }
 
-static int axiom_spi_read_block_data(struct device *dev, u8 *xfer_buf,
-				      u16 addr, u16 length, void *values)
+static int axiom_spi_write_block_data(struct device *dev, u16 addr, u16 length, void *values)
 {
-	
+	return axiom_spi_transfer(dev, AX_WR_OP, addr, length, values);
 }
 
-static int axiom_spi_write_block_data(struct device *dev, u8 *xfer_buf,
-				       u16 addr, u16 length, void *values)
-{
-
-}
 static const struct axiom_bus_ops axiom_spi_bus_ops = {
 	.bustype	= BUS_SPI,
 	.write		= axiom_spi_write_block_data,
@@ -182,8 +139,7 @@ static int axiom_spi_probe(struct spi_device *spi)
 			__func__, error);
 		return error;
 	}
-	axiom = axiom_probe(&axiom_spi_bus_ops, &spi->dev, spi->irq,
-			  SPI_DATA_SIZE * 2);
+	axiom = axiom_probe(&axiom_spi_bus_ops, &spi->dev, spi->irq);
 	
 	if (IS_ERR(axiom))
 		return PTR_ERR(axiom);

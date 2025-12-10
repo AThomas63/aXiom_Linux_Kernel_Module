@@ -16,7 +16,7 @@
  *
  */
 
-#define DEBUG   // Enable debug messages
+#define DEBUG // Enable debug messages
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -85,7 +85,7 @@ static int axiom_set_capabilities(struct input_dev *input_dev)
 	return 0;
 }
 
-static struct u31_usage_entry *usage_find_entry(struct axiom *ax, u8 usage)
+static struct u31_usage_entry *usage_find_entry(struct axiom *ax, u16 usage)
 {
 	u16 i;
 
@@ -94,7 +94,7 @@ static struct u31_usage_entry *usage_find_entry(struct axiom *ax, u8 usage)
 			return &ax->usage_table[i];
 	}
 
-	pr_err("aXiom-core: Usage 0x%02x not found in usage table\n", usage);
+	pr_err("aXiom-core: Usage u%02x not found in usage table\n", usage);
 	return ERR_PTR(-EINVAL);
 }
 
@@ -106,8 +106,7 @@ static int axiom_init_dev_info(struct axiom *ax)
 	u16 report_len;
 
 	/* Read page 0 of u31 */
-	err = ax->bus_ops->read(ax->dev, ax->xfer_buf, 0x0,
-				sizeof(ax->dev_info), (u8 *) &ax->dev_info);
+	err = ax->bus_ops->read(ax->dev, 0x0, sizeof(ax->dev_info), (u8 *) &ax->dev_info);
 	if (err)
 		return -EIO;
 
@@ -120,8 +119,7 @@ static int axiom_init_dev_info(struct axiom *ax)
 	dev_info(ax->dev, "  Num Usages     : %04x\n", ax->dev_info.num_usages);
 
 	/* Read the second page of u31 to get the usage table */ 
-	err = ax->bus_ops->read(ax->dev, ax->xfer_buf, 0x100,
-				sizeof(ax->usage_table[0]) * ax->dev_info.num_usages, (u8 *) &ax->usage_table);
+	err = ax->bus_ops->read(ax->dev, 0x100, sizeof(ax->usage_table[0]) * ax->dev_info.num_usages, (u8 *) &ax->usage_table);
 	if (err)
 		return -EIO;
 
@@ -143,6 +141,11 @@ static int axiom_init_dev_info(struct axiom *ax)
 	}
 	dev_info(ax->dev, "Max Report Length: %u\n", ax->max_report_len);
 
+	if (ax->max_report_len > MAX_REPORT_LEN) {
+		dev_err(ax->dev, "aXiom maximum report length (%u) greater than allocated buffer size (%u).", ax->max_report_len, MAX_REPORT_LEN);
+		return -EINVAL;
+	}
+	
 	/* Set u34 address to allow direct access to report reading address */
 	u = usage_find_entry(ax, 0x34);
 	if (IS_ERR(u))
@@ -166,8 +169,7 @@ static int axiom_rebaseline(struct axiom *ax)
 	/* Rebaseline request */
 	buffer[0] = 0x03;
 
-	ret = ax->bus_ops->write(ax->dev, ax->xfer_buf, u->start_page << 8,
-		sizeof(buffer), buffer);
+	ret = ax->bus_ops->write(ax->dev, u->start_page << 8, sizeof(buffer), buffer);
 
 	if (ret) {
 		dev_err(ax->dev, "Rebaseline failed\n");
@@ -178,44 +180,143 @@ static int axiom_rebaseline(struct axiom *ax)
 	return 0;
 }
 
-static bool axiom_process_u41_report_target(struct axiom *ax, const struct u41_report *r)
+static bool axiom_process_u41_target(struct axiom *ax,
+                                     struct u41_target *prev,
+                                     const struct u41_target *target,
+                                     int slot)
 {
-	return false;
+    bool update = false;
+
+    switch (target->state) {
+    case Target_State_Not_Present:
+    case Target_State_Prox:
+        if (prev->insert) {
+            prev->insert = false;
+            update = true;
+
+            input_mt_slot(ax->input, slot);
+            if (slot == 0)
+                input_report_key(ax->input, BTN_LEFT, false);
+
+            input_mt_report_slot_inactive(ax->input);
+
+            /* Off-screen coordinates for next touch */
+            prev->x = prev->y = 65535;
+            prev->z = -128;
+        }
+        break;
+
+    case Target_State_Hover:
+    case Target_State_Touching:
+        prev->insert = true;
+        update = true;
+
+        input_mt_slot(ax->input, slot);
+        input_report_abs(ax->input, ABS_MT_TRACKING_ID, slot);
+        input_report_abs(ax->input, ABS_MT_POSITION_X, target->x);
+        input_report_abs(ax->input, ABS_X, target->x);
+        input_report_abs(ax->input, ABS_MT_POSITION_Y, target->y);
+        input_report_abs(ax->input, ABS_Y, target->y);
+
+        if (target->state == Target_State_Touching) {
+            input_report_abs(ax->input, ABS_MT_DISTANCE, 0);
+            input_report_abs(ax->input, ABS_DISTANCE, 0);
+            input_report_abs(ax->input, ABS_MT_PRESSURE, target->z);
+            input_report_abs(ax->input, ABS_PRESSURE, target->z);
+        } else { /* Hover */
+            input_report_abs(ax->input, ABS_MT_DISTANCE, -target->z);
+            input_report_abs(ax->input, ABS_DISTANCE, -target->z);
+            input_report_abs(ax->input, ABS_MT_PRESSURE, 0);
+            input_report_abs(ax->input, ABS_PRESSURE, 0);
+        }
+
+        if (slot == 0)
+            input_report_key(ax->input, BTN_LEFT, target->state == Target_State_Touching);
+
+        break;
+
+    default:
+        break;
+    }
+
+    /* Update stored previous state */
+    prev->state = target->state;
+    prev->x = target->x;
+    prev->y = target->y;
+    prev->z = target->z;
+
+    return update;
 }
 
 static int axiom_process_u41_report(struct axiom *ax, u8 *report)
 {
-	
 	const struct u41_report *r = (const struct u41_report *)report;
-	bool updated = false;
+	struct u41_target target;
+	struct u41_target *prev;
+	bool update = false;
+	int slot;
+	bool present;
 
-	pr_debug("=== u41 report data ===\n");
+	dev_dbg(ax->dev, "=== u41 report data ===\n");
 
 	for (int i = 0; i < U41_MAX_TARGETS; i++) {
+		prev = &ax->u41_targets[i];
+		
+		present = !!((r->target_present >> i) & 1);
+		target.index = i;
+		target.x = r->coord[i].x;
+		target.y = r->coord[i].y;
+		target.z = r->z[i];
+		target.state = ((present == 0)									? Target_State_Not_Present
+						: (target.z >= 0)								? Target_State_Touching
+						: (target.z > U41_PROX_LEVEL) && (target.z < 0) ? Target_State_Hover
+						: (target.z == U41_PROX_LEVEL)					? Target_State_Prox
+																		: Target_State_Not_Present);
+		dev_dbg(ax->dev, "Target %d: x=%u y=%u z=%d present=%d\n",
+                i, target.x, target.y, target.z, present);
 
-		pr_debug("Target %d: x=%u y=%u z=%d present=%d\n",
-		         i,
-		         r->coord[i].x,
-		         r->coord[i].y,
-		         r->z[i],
-		         !!((r->target_present >> i) & 1));
+        slot = i;
+        if ((prev->state != target.state) ||
+            (prev->x != target.x) ||
+            (prev->y != target.y) ||
+            (prev->z != target.z)) {
+            update |= axiom_process_u41_target(ax, prev, &target, slot);
+        }
 
-		updated |= axiom_process_u41_report_target(ax, r);
 	}
 
-	if (updated)
+	if (update){
+		input_mt_sync_frame(ax->input);
 		input_sync(ax->input);
-	
+	}
 	return 0;
+}
+
+static int check_revision(struct axiom *ax, u16 usage)
+{
+	struct u31_usage_entry *u;
+
+	u = usage_find_entry(ax, usage);
+	if (IS_ERR(u))
+		return PTR_ERR(u);
+
+	if (usage == AX_2DCTS_REPORT_ID) {
+		if(u->uifrevision != 6) {
+			dev_warn(ax->dev, "Unsupported revision %u for usage u%02x! \n", u->uifrevision, u->usage_num);
+			return -1;
+		}
+	}
+
+	return 0;	
 }
 
 static int axiom_process_report(struct axiom *ax, u8 *report)
 {
+	int ret;
 	struct u34_report_header *u34_report = (struct u34_report_header *) report;
 	u16 crc_calc;
 	u16 crc_report;
 	u8 len;
-	int ret;
 
 	len = u34_report->report_length << 1;
 	if (u34_report->report_length == 0) {
@@ -233,13 +334,17 @@ static int axiom_process_report(struct axiom *ax, u8 *report)
 		return -EBADMSG;
 	}
 
+	ret = check_revision(ax, u34_report->report_usage);
+	if (ret)
+		return -EBADMSG;
+
 	switch (u34_report->report_usage) {
 	case AX_2DCTS_REPORT_ID:
-		// TODO check revision of report here 
 		ret = axiom_process_u41_report(ax, u34_report->payload_buf);
 		break;
 	
-	
+	default:
+		break;
 	}
 
 	return ret;
@@ -250,30 +355,27 @@ static irqreturn_t axiom_irq(int irq, void *handle)
 {	
 	struct axiom *ax = handle;
 	int error;
-	u8 buffer[MAX_REPORT_LEN];
 
 	/* Read touch reports from u34 */
-	error = ax->bus_ops->read(ax->dev, ax->xfer_buf, ax->u34_address,
-				ax->max_report_len, buffer);
+	error = ax->bus_ops->read(ax->dev, ax->u34_address, ax->max_report_len, ax->report_buf);
 	if (error)
 		goto out;
 	
-	axiom_process_report(ax, buffer);
+	axiom_process_report(ax, ax->report_buf);
 	
 out:
 	return IRQ_HANDLED;
 
 }
 
-struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
-			    struct device *dev, int irq, size_t xfer_buf_size)
+struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops, struct device *dev, int irq)
 {
 
 	struct axiom *ax;
 	struct input_dev *input_dev;
 	int error;
 
-	ax = devm_kzalloc(dev, sizeof(*ax) + xfer_buf_size, GFP_KERNEL);
+	ax = devm_kzalloc(dev, sizeof(*ax), GFP_KERNEL);
 	if (!ax)
 		return ERR_PTR(-ENOMEM);
 
@@ -303,20 +405,19 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 	if (error)
 		return ERR_PTR(error);
 
-	// error = devm_request_threaded_irq(ax->dev, ax->irq,
-	// 								NULL, axiom_irq,
-	// 								IRQF_TRIGGER_LOW | IRQF_ONESHOT,
-	// 								"axiom_irq", ax);
+	error = devm_request_threaded_irq(ax->dev, ax->irq,
+									NULL, axiom_irq,
+									IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+									"axiom_irq", ax);
 	if (error) {
 		dev_err(ax->dev, "Failed to request IRQ %d, err: %d\n",
 			ax->irq, error);
 		return ERR_PTR(error);
 	}
 
-
 	error = input_register_device(input_dev);
 	if (error) {
-		dev_err(ax->dev, "failed to register input device: %d\n",
+		dev_err(ax->dev, "Failed to register input device: %d\n",
 			error);
 		return ERR_PTR(error);
 	}
