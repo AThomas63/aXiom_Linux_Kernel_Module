@@ -19,6 +19,7 @@
 #ifndef __AXIOM_CORE_H
 #define __AXIOM_CORE_H
 
+
 ////////////////////////////////////////////////////////////////////////////////
 //USER OPTIONS
 
@@ -30,129 +31,148 @@
 // u31 has 2 pages for usage table entries. (2 * AX_COMMS_PAGE_SIZE) / U31_BYTES_PER_USAGE = 85
 #define U31_MAX_USAGES              (85U)
 #define U41_MAX_TARGETS             (10U)
-#define U46_AUX_CHANNELS            (4U)
-#define U46_AUX_MASK                (0xFFFU)
-#define U31_BYTES_PER_USAGE         (6U)
-#define USAGE_2DCTS_REPORT_ID       (0x41U)
-#define USAGE_2AUX_REPORT_ID        (0x46U)
-#define USAGE_2HB_REPORT_ID         (0x01U)
-#define PROX_LEVEL                  (-128)
-#define AX_U31_PAGE0_LENGTH         (0x0C)
-// For details check TNxAN00035: "aXiom_Touch_Controller_Comms_Protocol"
-#define AX_COMMS_WRITE              (0x00U)
-#define AX_COMMS_READ               (0x80U)
-#define AX_COMMS_BYTES_MASK         (0xFFU)
+#define U41_PROX_LEVEL              (-128)
+#define MAX_REPORT_LEN              (58)
 
-#define COMMS_MAX_USAGE_PAGES       (3)
-#define AX_COMMS_PAGE_SIZE          (256)
-
-#define COMMS_OVERFLOW_MSK          (0x80)
-#define COMMS_REPORT_LEN_MSK        (0x7F)
 
 #include <linux/input.h>
 
-#ifdef __AXIOM_KERNEL_5_4
-#define input_mt_report_slot_inactive(dev) input_mt_report_slot_state(dev, 0, false)
-#endif
-
-// purpose: Holds device specific information
-struct u31_DeviceInfo {
-	u8 bootloader_mode;
-	u16 device_id;
-	u8 fw_major;
-	u8 fw_minor;
-	u16 fw_info_extra;
-	u8 bootloader_fw_ver_major;
-	u8 bootloader_fw_ver_minor;
-	u16 jedec_id;
-	u8 num_usages;
-	u8 silicon_revision;
+enum ax_comms_op_e {
+	AX_WR_OP = 0,
+	AX_RD_OP = 1
 };
 
-
-// purpose: Describes parameters of a specific usage, essenstially a single
-//          element of the "Usage Table"
-struct usage_Entry {
-	u8 id;
-	u8 is_report;
-	u8 start_page;
-	u8 num_pages;
+enum report_ids_e {
+    AX_HB_REPORT_ID = 0x01,
+    AX_2DCTS_REPORT_ID = 0x41,
+    AX_AUX_REPORT_ID = 0x46,
 };
 
-// purpose: Holds state of a "Target", A.K.A. as a "touch", but called a
-//          target as it can be a detected "target" prior to touch, eg, hovering.
-enum u41_Target_State_e {
-	Target_State_Not_Present = 0,
-	Target_State_Prox        = 1,
-	Target_State_Hover       = 2,
-	Target_State_Touching    = 3,
-
-	Target_State_Min         = Target_State_Not_Present,
-	Target_State_Max         = Target_State_Touching,
+enum axiom_mode_e {
+	AX_RUNTIME_STATE = 0,
+	AX_BOOTLOADER_STATE = 1,
 };
 
-// purpose: Holds information describing a target.
-struct u41_Target {
-	enum u41_Target_State_e state;
-	u16 x;
-	u16 y;
-	s8  z;
-	bool insert;
-	bool touch;
+enum usage_type_e {
+	UNKNOWN = 0,
+	OTHER = 1,
+	REPORT = 2,
+	REGISTER = 3,
+	REGISTER_READ_ONLY_ = 4,
+	CDU = 5,
+	CDU_READ_ONLY_ = 6,
 };
 
-// purpose: Holds decoded data from an aXiom u41 report.
-struct u41_Target_Report {
-	u8  index;
-	u8  present;
-	u16 x;
-	u16 y;
-	s8  z;
+struct axiom_device_info {
+    u16 device_id : 15;
+    u16 mode      : 1;
+    u16 runtime_fw_rev_minor : 8;
+    u16 runtime_fw_rev_major : 8;
+    u16 device_build_variant : 6;
+    u16 pad_bit6             : 1;
+    u16 runtime_fw_status    : 1;
+    u16 tcp_revision         : 8;
+    u16 bootloader_fw_rev_minor : 8;
+    u16 bootloader_fw_rev_major : 8;
+    u16 jedec_id;
+    u16 num_usages           : 8;
+    u16 silicon_revision     : 4;
+    u16 runtime_fw_rev_patch : 4;
 };
+_Static_assert(sizeof(struct axiom_device_info) == 12, "axiom_device_info must be 12 bytes");
 
-// purpose: I2C & SPI command header structure
-struct AxiomCmdHeader {
+struct u31_usage_entry {
+    u16 usage_num : 8;
+    u16 start_page : 8;
+    u16 num_pages : 8;
+    u16 max_offset : 7;
+    u16 offset_type : 1;
+    u16 uifrevision : 8;
+    u16 usage_type : 8;
+};
+_Static_assert(sizeof(struct u31_usage_entry) == 6, "u31_usage_entry must be 6 bytes");
+
+struct axiom_cmd_header {
 	u16 target_address;
 	u16 length  :15;
 	u16 read    :1;
 	u8  writeData[];
 };
 
-// purpose: Groups several structures needed for the core module.
-struct axiom_data_core {
-	// aXiom entries
-	struct u31_DeviceInfo u31_Info;
-	struct u41_Target targets[U41_MAX_TARGETS];
-	struct usage_Entry usage_table[U31_MAX_USAGES];
-	bool usage_table_populated;
-	u8 max_report_len;
-	u32 report_overflow_counter;
-	u32 report_counter;
-	u32 bus_holdoff_delay_us;
-	// This could potentially be allocated during discovery.
-	u8 rx_buf[COMMS_MAX_USAGE_PAGES * AX_COMMS_PAGE_SIZE];
-
-	// Input Sub-system
-	struct input_dev *input_dev;
-
-	// The device
-	struct device *pDev;
-	void *pAxiomData;
-	u16 (*pAxiomReadUsage)(void *pAxiomData, u8 usage, u8 page, u16 length, u8 *pBuffer);
-	u16 (*pAxiomWriteUsage)(void *pAxiomData, u8 usage, u8 page, u16 length, u8 *pBuffer);
+struct axiom_bus_ops {
+	u16 bustype;
+	int (*write)(struct device *dev, u16 addr, u16 length, void *values);
+	int (*read)(struct device *dev, u16 addr, u16 length, void *values);
 };
 
-extern void axiom_get_dev_info(struct axiom_data_core *data_core, u8 *data);
-extern u8 axiom_populate_usage_table(struct axiom_data_core *data_core, u8 *pRX_data);
-extern u16 usage_to_target_address(struct axiom_data_core *data_core,
-									u8 usage, u8 page, u8 offset);
-extern bool axiom_discover(struct axiom_data_core *data_core);
-extern void axiom_rebaseline(struct axiom_data_core *data_core);
-extern void axiom_init_data_core(struct axiom_data_core *data_core, struct device *pDev, void *pAxiomData, void *pAxiomReadUsage, void *pAxiomWriteUsage);
-extern void axiom_remove(struct axiom_data_core *data_core);
-extern void axiom_process_report(struct axiom_data_core *data_core, u8 *pReport);
-extern void axiom_process_u41_report(u8 *rx_buf, struct axiom_data_core *data_core);
-extern void axiom_process_u46_report(u8 *rx_buf, struct axiom_data_core *data_core);
-extern struct input_dev *axiom_register_input_subsystem(bool poll_enable, int poll_interval);
+enum u41_target_state_e {
+	Target_State_Not_Present = 0,
+	Target_State_Prox        = 1,
+	Target_State_Hover       = 2,
+	Target_State_Touching    = 3,
+};
+
+struct u41_target {
+    int index;
+	enum u41_target_state_e state;
+	u16 x;
+	u16 y;
+	s8  z;
+	bool insert;
+};
+
+struct axiom {
+	struct device *dev;
+	int irq;
+	struct input_dev *input;
+	const struct axiom_bus_ops *bus_ops;
+	struct axiom_device_info dev_info;
+	struct u31_usage_entry usage_table[U31_MAX_USAGES];
+	u16 max_report_len;
+    u16 u34_address;
+
+    struct u41_target u41_targets[U41_MAX_TARGETS];
+
+	u8 report_buf[MAX_REPORT_LEN] ____cacheline_aligned; 
+};
+
+struct u34_report_header {
+	u16 report_length : 7;
+	u16 overflow      : 1;
+	u16 report_usage  : 8;
+
+	/* all other reports derive from this buffer */
+	u8 payload_buf[];
+};
+_Static_assert(sizeof(struct u34_report_header) == 2, "u34_report_header must be 2 bytes");
+
+
+struct u41_report { // Revision 6
+    u16 target_present    : 10;
+    u16 unused            : 6;
+
+	struct {
+		u16 x;
+		u16 y;
+	} coord[U41_MAX_TARGETS];
+
+	s8 z[U41_MAX_TARGETS];
+};
+_Static_assert(sizeof(struct u41_report) == (2 + (5 * U41_MAX_TARGETS)), "u41_report size mismatch");
+
+struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops, struct device *dev, int irq);
+
+// extern void axiom_get_dev_info(struct axiom_data_core *data_core, u8 *data);
+// extern u8 axiom_populate_usage_table(struct axiom_data_core *data_core, u8 *pRX_data);
+// extern u16 usage_to_target_address(struct axiom_data_core *data_core,
+// 									u8 usage, u8 page, u8 offset);
+// extern bool axiom_discover(struct axiom_data_core *data_core);
+// extern void axiom_rebaseline(struct axiom_data_core *data_core);
+// extern void axiom_init_data_core(struct axiom_data_core *data_core, struct device *pDev, void *pAxiomData, void *pAxiomReadUsage, void *pAxiomWriteUsage);
+// extern void axiom_remove(struct axiom_data_core *data_core);
+// extern void axiom_process_report(struct axiom_data_core *data_core, u8 *pReport);
+// extern void axiom_process_u41_report(u8 *rx_buf, struct axiom_data_core *data_core);
+// extern void axiom_process_u46_report(u8 *rx_buf, struct axiom_data_core *data_core);
+// extern struct input_dev *axiom_register_input_subsystem(bool poll_enable, int poll_interval);
 
 #endif  /* __AXIOM_CORE_H */
