@@ -32,7 +32,7 @@
 #include <linux/pm.h>
 #include <linux/i2c.h>
 #include <linux/string.h>
-#include "axiom_core_new.h"
+#include "axiom_core.h"
 
 static bool poll_enable;
 module_param(poll_enable, bool, 0444);

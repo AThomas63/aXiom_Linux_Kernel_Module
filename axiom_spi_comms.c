@@ -30,7 +30,7 @@
 #include <linux/spi/spi.h>
 #include <linux/string.h>
 #include <linux/version.h>
-#include "axiom_core_new.h"
+#include "axiom_core.h"
 
 #define SPI_PADDING_LEN 	32
 

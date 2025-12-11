@@ -39,7 +39,7 @@
  */
 #define POLL_INTERVAL_DEFAULT_MS	100
 
-#include "axiom_core_new.h"
+#include "axiom_core.h"
 
 
 static int axiom_set_capabilities(struct input_dev *input_dev)
