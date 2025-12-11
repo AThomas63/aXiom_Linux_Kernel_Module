@@ -159,7 +159,7 @@ static int axiom_rebaseline(struct axiom *ax)
 {
 	struct u31_usage_entry *u;
 	u8 buffer[8] = {0};
-	int ret;
+	int err;
 
 	u = usage_find_entry(ax, 0x02);
 	if (IS_ERR(u))
@@ -169,11 +169,11 @@ static int axiom_rebaseline(struct axiom *ax)
 	/* Rebaseline request */
 	buffer[0] = 0x03;
 
-	ret = ax->bus_ops->write(ax->dev, u->start_page << 8, sizeof(buffer), buffer);
+	err = ax->bus_ops->write(ax->dev, u->start_page << 8, sizeof(buffer), buffer);
 
-	if (ret) {
+	if (err) {
 		dev_err(ax->dev, "Rebaseline failed\n");
-		return ret;
+		return err;
 	}
 	
 	dev_info(ax->dev, "Capture Baseline Requested\n");
@@ -220,9 +220,7 @@ static bool axiom_process_u41_target(struct axiom *ax,
 
         if (target->state == Target_State_Touching) {
             input_report_abs(ax->input, ABS_MT_DISTANCE, 0);
-            input_report_abs(ax->input, ABS_DISTANCE, 0);
             input_report_abs(ax->input, ABS_MT_PRESSURE, target->z);
-            input_report_abs(ax->input, ABS_PRESSURE, target->z);
         } else { /* Hover */
             input_report_abs(ax->input, ABS_MT_DISTANCE, -target->z);
             input_report_abs(ax->input, ABS_DISTANCE, -target->z);
@@ -312,7 +310,7 @@ static int check_revision(struct axiom *ax, u16 usage)
 
 static int axiom_process_report(struct axiom *ax, u8 *report)
 {
-	int ret;
+	int err;
 	struct u34_report_header *u34_report = (struct u34_report_header *) report;
 	u16 crc_calc;
 	u16 crc_report;
@@ -334,20 +332,20 @@ static int axiom_process_report(struct axiom *ax, u8 *report)
 		return -EBADMSG;
 	}
 
-	ret = check_revision(ax, u34_report->report_usage);
-	if (ret)
+	err = check_revision(ax, u34_report->report_usage);
+	if (err)
 		return -EBADMSG;
 
 	switch (u34_report->report_usage) {
 	case AX_2DCTS_REPORT_ID:
-		ret = axiom_process_u41_report(ax, u34_report->payload_buf);
+		err = axiom_process_u41_report(ax, u34_report->payload_buf);
 		break;
 	
 	default:
 		break;
 	}
 
-	return ret;
+	return err;
 
 }
 
@@ -417,8 +415,7 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops, struct device *de
 
 	error = input_register_device(input_dev);
 	if (error) {
-		dev_err(ax->dev, "Failed to register input device: %d\n",
-			error);
+		dev_err(ax->dev, "Failed to register input device: %d\n", error);
 		return ERR_PTR(error);
 	}
 	

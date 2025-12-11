@@ -46,7 +46,7 @@ MODULE_PARM_DESC(poll_interval, "Polling period in ms [default = 100]");
 static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 				      u16 addr, u16 length, void *values)
 {
-	int retval;
+	int ret;
 	struct spi_device *spi = to_spi_device(dev);
 	struct spi_transfer xfr_header;
 	struct spi_transfer xfr_padding;
@@ -88,18 +88,11 @@ static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 	spi_message_add_tail(&xfr_padding, &msg);
 	spi_message_add_tail(&xfr_payload, &msg);
 
-	retval = spi_sync(spi, &msg);
-	if (retval < 0) {
-		dev_err(&spi->dev, "Failed to SPI transfer, error: %d\n", retval);
+	ret = spi_sync(spi, &msg);
+	if (ret < 0) {
+		dev_err(&spi->dev, "Failed to SPI transfer, error: %d\n", ret);
 		return 0;
 	}
-
-	// udelay(data->data_core.bus_holdoff_delay_us);
-	udelay(250);
-
-	dev_dbg(&spi->dev, "SPI Header (%lu bytes): %*ph\n", sizeof(cmd_header), (int)sizeof(cmd_header), &cmd_header);
-	dev_dbg(&spi->dev, "SPI Padding (%lu bytes): %*ph\n", sizeof(pad_buf), (int)sizeof(pad_buf), pad_buf);
-	dev_dbg(&spi->dev, "SPI Payload (%u bytes): %*ph\n", length, length, values);
 
 	return 0;
 }
@@ -140,9 +133,8 @@ static int axiom_spi_probe(struct spi_device *spi)
 		return error;
 	}
 	axiom = axiom_probe(&axiom_spi_bus_ops, &spi->dev, spi->irq);
-	
-	if (IS_ERR(axiom))
-		return PTR_ERR(axiom);
+	if (IS_ERR(axiom)) 
+		return dev_err_probe(&spi->dev, PTR_ERR(axiom), "failed to register input device \n");
 
 	spi_set_drvdata(spi, axiom);
 
