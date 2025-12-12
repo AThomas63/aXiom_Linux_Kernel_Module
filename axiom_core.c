@@ -300,13 +300,14 @@ static int axiom_process_report(struct axiom *ax, u8 *report)
 	u16 crc_report;
 	u8 len;
 
+	dev_dbg(ax->dev, "Payload Data %*ph\n", ax->max_report_len, report);
+
 	len = u34_report->report_length << 1;
 	if (u34_report->report_length == 0) {
 		dev_err(ax->dev, "Zero length report discarded.\n");
 		return -EBADMSG;
 	}
 
-	dev_dbg(ax->dev, "Payload Data %*ph\n", len, report);
 
 	crc_report = (report[len - 1] << 8) | (report[len - 2]);
 	crc_calc = crc16(0, report, (len - 2)); // Length is 16 bit words and remove the size of the CRC16 itself
@@ -389,7 +390,7 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops, struct device *de
 
 	error = devm_request_threaded_irq(ax->dev, ax->irq,
 									NULL, axiom_irq,
-									IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+									IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
 									"axiom_irq", ax);
 	if (error) {
 		dev_err(ax->dev, "Failed to request IRQ %d, err: %d\n",
