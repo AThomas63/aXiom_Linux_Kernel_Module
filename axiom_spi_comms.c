@@ -83,7 +83,7 @@ static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 	ret = spi_sync(spi, &msg);
 	if (ret < 0) {
 		dev_err(&spi->dev, "Failed to SPI transfer, error: %d\n", ret);
-		return 0;
+		return ret;
 	}
 
 	return 0;
@@ -126,7 +126,7 @@ static int axiom_spi_probe(struct spi_device *spi)
 	}
 	axiom = axiom_probe(&axiom_spi_bus_ops, &spi->dev, spi->irq);
 	if (IS_ERR(axiom)) 
-		return dev_err_probe(&spi->dev, PTR_ERR(axiom), "failed to register input device \n");
+		return dev_err_probe(&spi->dev, PTR_ERR(axiom), "failed to register input device\n");
 
 	spi_set_drvdata(spi, axiom);
 

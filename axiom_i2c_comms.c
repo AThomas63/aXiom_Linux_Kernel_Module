@@ -117,7 +117,7 @@ static int axiom_i2c_probe(struct i2c_client *client)
 
 	axiom = axiom_probe(&axiom_i2c_bus_ops, &client->dev, client->irq);
 	if (IS_ERR(axiom)) 
-		return dev_err_probe(&client->dev, PTR_ERR(axiom), "failed to register input device \n");
+		return dev_err_probe(&client->dev, PTR_ERR(axiom), "failed to register input device\n");
 
 	i2c_set_clientdata(client, axiom);
 

@@ -93,7 +93,7 @@ static int axiom_init_dev_info(struct axiom *ax)
 	err = ax->bus_ops->read(ax->dev, 0x0, sizeof(ax->dev_info), (u8 *) &ax->dev_info);
 	if (err)
 		return -EIO;
-
+	
 	dev_info(ax->dev, "Firmware Info:\n");
 	dev_info(ax->dev, "  Bootloader Mode: %u\n", ax->dev_info.mode);
 	dev_info(ax->dev, "  Device ID      : %04x\n", ax->dev_info.device_id);
@@ -101,6 +101,13 @@ static int axiom_init_dev_info(struct axiom *ax)
 	dev_info(ax->dev, "  Bootloader Rev : %02x.%02x\n", ax->dev_info.bootloader_fw_rev_major, ax->dev_info.bootloader_fw_rev_minor);
 	dev_info(ax->dev, "  Silicon        : %02x\n", ax->dev_info.jedec_id);
 	dev_info(ax->dev, "  Num Usages     : %04x\n", ax->dev_info.num_usages);
+
+	if (ax->dev_info.num_usages > U31_MAX_USAGES) {
+		dev_err(ax->dev,
+			"Num usages (%u) exceeds maximum supported (%u)\n",
+			ax->dev_info.num_usages, U31_MAX_USAGES);
+		return -EINVAL;
+	}
 
 	/* Read the second page of u31 to get the usage table */ 
 	err = ax->bus_ops->read(ax->dev, 0x100, sizeof(ax->usage_table[0]) * ax->dev_info.num_usages, (u8 *) &ax->usage_table);
@@ -149,12 +156,10 @@ static int axiom_rebaseline(struct axiom *ax)
 	if (IS_ERR(u))
 		return PTR_ERR(u);
 
-		
 	/* Rebaseline request */
 	buffer[0] = 0x03;
 
 	err = ax->bus_ops->write(ax->dev, u->start_page << 8, sizeof(buffer), buffer);
-
 	if (err) {
 		dev_err(ax->dev, "Rebaseline failed\n");
 		return err;
@@ -238,10 +243,11 @@ static int axiom_process_u41_report(struct axiom *ax, u8 *report)
 	bool update = false;
 	int slot;
 	bool present;
+	int i;
 
 	dev_dbg(ax->dev, "=== u41 report data ===\n");
 
-	for (int i = 0; i < U41_MAX_TARGETS; i++) {
+	for (i = 0; i < U41_MAX_TARGETS; i++) {
 		prev = &ax->u41_targets[i];
 		
 		present = !!((r->target_present >> i) & 1);
@@ -284,8 +290,8 @@ static int check_revision(struct axiom *ax, u16 usage)
 
 	if (usage == AX_2DCTS_REPORT_ID) {
 		if(u->uifrevision != 6) {
-			dev_warn(ax->dev, "Unsupported revision %u for usage u%02x! \n", u->uifrevision, u->usage_num);
-			return -1;
+			dev_err(ax->dev, "Unsupported revision %u for usage u%02x!\n", u->uifrevision, u->usage_num);
+			return -ENOTSUPP;
 		}
 	}
 
@@ -337,14 +343,16 @@ static int axiom_process_report(struct axiom *ax, u8 *report)
 static irqreturn_t axiom_irq(int irq, void *handle)
 {	
 	struct axiom *ax = handle;
-	int error;
+	int err;
 
 	/* Read touch reports from u34 */
-	error = ax->bus_ops->read(ax->dev, ax->u34_address, ax->max_report_len, ax->report_buf);
-	if (error)
+	err = ax->bus_ops->read(ax->dev, ax->u34_address, ax->max_report_len, ax->report_buf);
+	if (err)
 		goto out;
 	
-	axiom_process_report(ax, ax->report_buf);
+	err = axiom_process_report(ax, ax->report_buf);
+	if (err)
+		dev_err(ax->dev, "Failed to process report: %d\n", err);
 	
 out:
 	return IRQ_HANDLED;
@@ -356,7 +364,7 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops, struct device *de
 
 	struct axiom *ax;
 	struct input_dev *input_dev;
-	int error;
+	int err;
 
 	ax = devm_kzalloc(dev, sizeof(*ax), GFP_KERNEL);
 	if (!ax)
@@ -378,30 +386,28 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops, struct device *de
 
 	axiom_set_capabilities(input_dev);
 
-	error = axiom_init_dev_info(ax);
-	if (error) {
-		dev_err(ax->dev, "Failed to read device info, err: %d\n", error);	
-		return ERR_PTR(error);
+	err = axiom_init_dev_info(ax);
+	if (err) {
+		dev_err(ax->dev, "Failed to read device info, err: %d\n", err);	
+		return ERR_PTR(err);
 	}
 
-	error = axiom_rebaseline(ax);
-	if (error)
-		return ERR_PTR(error);
+	err = axiom_rebaseline(ax);
+	if (err)
+		return ERR_PTR(err);
 
-	error = devm_request_threaded_irq(ax->dev, ax->irq,
+	err = devm_request_threaded_irq(ax->dev, ax->irq,
 									NULL, axiom_irq,
 									IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
 									"axiom_irq", ax);
-	if (error) {
-		dev_err(ax->dev, "Failed to request IRQ %d, err: %d\n",
-			ax->irq, error);
-		return ERR_PTR(error);
+	if (err) {
+		return ERR_PTR(err);
 	}
 
-	error = input_register_device(input_dev);
-	if (error) {
-		dev_err(ax->dev, "Failed to register input device: %d\n", error);
-		return ERR_PTR(error);
+	err = input_register_device(input_dev);
+	if (err) {
+		dev_err(ax->dev, "Failed to register input device: %d\n", err);
+		return ERR_PTR(err);
 	}
 	
 	return ax;

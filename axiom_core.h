@@ -162,17 +162,5 @@ _Static_assert(sizeof(struct u41_report) == (2 + (5 * U41_MAX_TARGETS)), "u41_re
 
 struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops, struct device *dev, int irq);
 
-// extern void axiom_get_dev_info(struct axiom_data_core *data_core, u8 *data);
-// extern u8 axiom_populate_usage_table(struct axiom_data_core *data_core, u8 *pRX_data);
-// extern u16 usage_to_target_address(struct axiom_data_core *data_core,
-// 									u8 usage, u8 page, u8 offset);
-// extern bool axiom_discover(struct axiom_data_core *data_core);
-// extern void axiom_rebaseline(struct axiom_data_core *data_core);
-// extern void axiom_init_data_core(struct axiom_data_core *data_core, struct device *pDev, void *pAxiomData, void *pAxiomReadUsage, void *pAxiomWriteUsage);
-// extern void axiom_remove(struct axiom_data_core *data_core);
-// extern void axiom_process_report(struct axiom_data_core *data_core, u8 *pReport);
-// extern void axiom_process_u41_report(u8 *rx_buf, struct axiom_data_core *data_core);
-// extern void axiom_process_u46_report(u8 *rx_buf, struct axiom_data_core *data_core);
-// extern struct input_dev *axiom_register_input_subsystem(bool poll_enable, int poll_interval);
 
 #endif  /* __AXIOM_CORE_H */
