@@ -20,6 +20,7 @@
 
 #include <linux/i2c.h>
 #include <linux/kernel.h>
+#include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/input.h>
 #include "axiom_core.h"
@@ -31,6 +32,7 @@ MODULE_PARM_DESC(poll_enable, "Enable polling mode [default 0=no]");
 static int poll_interval;
 module_param(poll_interval, int, 0444);
 MODULE_PARM_DESC(poll_interval, "Polling period in ms [default = 100]");
+
 
 static int axiom_i2c_read_block_data(struct device *dev, u16 addr, u16 length, void *values)
 {	
@@ -62,6 +64,8 @@ static int axiom_i2c_read_block_data(struct device *dev, u16 addr, u16 length, v
 		dev_err(dev, "I2C transfer error: %d\n", error);
 		return error;
 	}
+
+	udelay(AXIOM_HOLDOFF_DELAY_US);
 
 	return error != ARRAY_SIZE(msgs) ? -EIO : 0;
 }
@@ -96,6 +100,8 @@ static int axiom_i2c_write_block_data(struct device *dev, u16 addr, u16 length, 
 		dev_err(dev, "I2C transfer error: %d\n", error);
 		return error;
 	}
+
+	udelay(AXIOM_HOLDOFF_DELAY_US);
 
 	return error != ARRAY_SIZE(msgs) ? -EIO : 0;
 }
@@ -147,7 +153,6 @@ static struct i2c_driver axiom_i2c_driver = {
 	},
 	.id_table = axiom_i2c_id_table,
 	.probe = axiom_i2c_probe,
-	// .remove = axiom_i2c_remove,
 };
 
 module_i2c_driver(axiom_i2c_driver);

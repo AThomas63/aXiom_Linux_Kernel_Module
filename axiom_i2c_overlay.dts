@@ -34,7 +34,7 @@
 									  use either <0x66> or <0x67>, the default is <0x66> */
 					clock-frequency = <400000>;
 					interrupt-parent = <&gpio>;
-					interrupts = < 24 2 >; /* <GPIO Flags> Flags: 1 = lo-to-hi, 2 = hi-to-lo, 4 = active high, 8 = active low  */
+					interrupts = < 24 8 >; /* <GPIO Flags> Flags: 1 = lo-to-hi, 2 = hi-to-lo, 4 = active high, 8 = active low  */
 					pinctrl-names = "default";
 					/* pinctrl-0 = <&axiom_i2cPins>; */
 			};		

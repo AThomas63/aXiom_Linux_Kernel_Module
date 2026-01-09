@@ -34,6 +34,7 @@
 #define U41_PROX_LEVEL              (-128)
 #define MAX_REPORT_LEN              (58)
 
+#define AXIOM_HOLDOFF_DELAY_US		(40)
 
 #include <linux/input.h>
 

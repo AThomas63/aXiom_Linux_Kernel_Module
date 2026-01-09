@@ -60,7 +60,7 @@
 				spi-max-frequency = < 4000000 >;
 				pinctrl-names = "default";
 				interrupt-parent = < &gpio >;
-				interrupts = < 24 2 >; /* <GPIO Flags> Flags: 1 = lo-to-hi, 2 = hi-to-lo, 4 = active high, 8 = active low  */
+				interrupts = < 24 8 >; /* <GPIO Flags> Flags: 1 = lo-to-hi, 2 = hi-to-lo, 4 = active high, 8 = active low  */
 				status = "okay";
 			};
 		};

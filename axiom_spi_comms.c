@@ -19,6 +19,7 @@
 
 #include <linux/of.h>
 #include <linux/kernel.h>
+#include <linux/delay.h>
 #include <linux/module.h>
 #include <linux/spi/spi.h>
 #include <linux/input.h>
@@ -86,6 +87,8 @@ static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 		return ret;
 	}
 
+	udelay(AXIOM_HOLDOFF_DELAY_US);
+	
 	return 0;
 }
 
@@ -155,7 +158,6 @@ static struct spi_driver axiom_spi_driver = {
 		.of_match_table = of_match_ptr(axiom_spi_dt_ids),
 	},
 	.probe = axiom_spi_probe,
-	// .remove = axiom_spi_remove,
 };
 
 module_spi_driver(axiom_spi_driver);

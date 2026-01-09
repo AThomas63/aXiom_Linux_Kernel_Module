@@ -398,7 +398,7 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops, struct device *de
 
 	err = devm_request_threaded_irq(ax->dev, ax->irq,
 									NULL, axiom_irq,
-									IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+									IRQF_TRIGGER_LOW | IRQF_ONESHOT,
 									"axiom_irq", ax);
 	if (err) {
 		return ERR_PTR(err);
