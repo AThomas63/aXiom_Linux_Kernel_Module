@@ -7,6 +7,7 @@
  * Author(s): Mark Satterthwaite <mark.satterthwaite@touchnetix.com>
  *            Bart Prescott <bartp@baasheep.co.uk>
  *            Hannah Rossiter <hannah.rossiter@touchnetix.com>
+ *            Andrew Thomas <andrew.thomas@touchnetix.com>
  *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
@@ -25,19 +26,10 @@
 #include <linux/input.h>
 #include "axiom_core.h"
 
-#define SPI_PADDING_LEN 	32
-
-static bool poll_enable;
-module_param(poll_enable, bool, 0444);
-MODULE_PARM_DESC(poll_enable, "Enable polling mode [default 0=no]");
-
-static int poll_interval;
-module_param(poll_interval, int, 0444);
-MODULE_PARM_DESC(poll_interval, "Polling period in ms [default = 100]");
-
+#define SPI_PADDING_LEN 32
 
 static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
-				      u16 addr, u16 length, void *values)
+			      u16 addr, u16 length, void *values)
 {
 	int ret;
 	struct spi_device *spi = to_spi_device(dev);
@@ -45,23 +37,21 @@ static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 	struct spi_transfer xfr_padding;
 	struct spi_transfer xfr_payload;
 	struct spi_message msg;
-	struct axiom_cmd_header cmd_header = {
-		.target_address = addr,
-		.length = length,
-		.read = op
-	};
-	u8 pad_buf[SPI_PADDING_LEN] = {0};
+	struct axiom_cmd_header cmd_header = { .target_address = addr,
+					       .length = length,
+					       .rd_wr = op };
+	u8 pad_buf[SPI_PADDING_LEN] = { 0 };
 
-	memset(&xfr_header,  0, sizeof(xfr_header));
+	memset(&xfr_header, 0, sizeof(xfr_header));
 	memset(&xfr_padding, 0, sizeof(xfr_padding));
 	memset(&xfr_payload, 0, sizeof(xfr_payload));
 
 	/* Setup the SPI transfer operations */
 	xfr_header.tx_buf = &cmd_header;
-	xfr_header.len    = sizeof(cmd_header);
+	xfr_header.len = sizeof(cmd_header);
 
 	xfr_padding.tx_buf = pad_buf;
-	xfr_padding.len    = sizeof(pad_buf);
+	xfr_padding.len = sizeof(pad_buf);
 
 	switch (op) {
 	case AX_WR_OP:
@@ -88,24 +78,26 @@ static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 	}
 
 	udelay(AXIOM_HOLDOFF_DELAY_US);
-	
+
 	return 0;
 }
 
-static int axiom_spi_read_block_data(struct device *dev, u16 addr, u16 length, void *values)
+static int axiom_spi_read_block_data(struct device *dev, u16 addr, u16 length,
+				     void *values)
 {
 	return axiom_spi_transfer(dev, AX_RD_OP, addr, length, values);
 }
 
-static int axiom_spi_write_block_data(struct device *dev, u16 addr, u16 length, void *values)
+static int axiom_spi_write_block_data(struct device *dev, u16 addr, u16 length,
+				      void *values)
 {
 	return axiom_spi_transfer(dev, AX_WR_OP, addr, length, values);
 }
 
 static const struct axiom_bus_ops axiom_spi_bus_ops = {
-	.bustype	= BUS_SPI,
-	.write		= axiom_spi_write_block_data,
-	.read		= axiom_spi_read_block_data,
+	.bustype = BUS_SPI,
+	.write = axiom_spi_write_block_data,
+	.read = axiom_spi_read_block_data,
 };
 
 static int axiom_spi_probe(struct spi_device *spi)
@@ -120,25 +112,23 @@ static int axiom_spi_probe(struct spi_device *spi)
 
 	if (spi->irq == 0)
 		dev_err(&spi->dev, "No IRQ specified!\n");
-	
+
 	error = spi_setup(spi);
 	if (error < 0) {
-		dev_err(&spi->dev, "%s: SPI setup error %d\n",
-			__func__, error);
+		dev_err(&spi->dev, "%s: SPI setup error %d\n", __func__, error);
 		return error;
 	}
 	axiom = axiom_probe(&axiom_spi_bus_ops, &spi->dev, spi->irq);
-	if (IS_ERR(axiom)) 
-		return dev_err_probe(&spi->dev, PTR_ERR(axiom), "failed to register input device\n");
-
-	spi_set_drvdata(spi, axiom);
+	if (IS_ERR(axiom))
+		return dev_err_probe(&spi->dev, PTR_ERR(axiom),
+				     "failed to register input device\n");
 
 	return 0;
 }
 
 static const struct spi_device_id axiom_spi_id_table[] = {
 	{ "axiom" },
-	{ },
+	{},
 };
 MODULE_DEVICE_TABLE(spi, axiom_spi_id_table);
 
@@ -147,7 +137,7 @@ static const struct of_device_id axiom_spi_dt_ids[] = {
 		.compatible = "axiom_spi,axiom",
 		.data = "axiom",
 	},
-	{ }
+	{}
 };
 MODULE_DEVICE_TABLE(of, axiom_spi_dt_ids);
 
