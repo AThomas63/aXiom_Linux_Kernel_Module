@@ -19,10 +19,10 @@
 #define DEBUG // Enable debug messages
 
 #include <linux/device.h>
-#include <linux/input.h>
 #include <linux/input/mt.h>
 #include <linux/crc16.h>
 #include <linux/interrupt.h>
+#include <linux/unaligned.h>
 #include "axiom_core.h"
 
 /* u31 device info masks */
@@ -48,6 +48,18 @@
 #define AX_U31_UIF_REV_MASK        GENMASK(7, 0)
 #define AX_U31_USAGE_TYPE_MASK     GENMASK(15, 8)
 
+/* u34 report masks */
+#define AX_U34_LEN_MASK      GENMASK(6, 0)
+#define AX_U34_OVERFLOW      BIT(7)
+#define AX_U34_USAGE_MASK    GENMASK(15, 8)
+#define AX_U34_PAYLOAD_BUFFER 2
+
+/* u41 report masks */
+#define AX_U41_PRESENT_MASK    GENMASK(9, 0)
+#define U41_X_Y_OFFSET (2) 
+#define U41_COORD_SIZE (4) 
+#define U41_Z_OFFSET (42)
+
 static int axiom_set_capabilities(struct input_dev *input_dev)
 {
 	input_dev->name = "TouchNetix aXiom Touchscreen";
@@ -68,8 +80,6 @@ static int axiom_set_capabilities(struct input_dev *input_dev)
 
 	input_mt_init_slots(input_dev, U41_MAX_TARGETS, INPUT_MT_DIRECT);
 
-	input_set_capability(input_dev, EV_KEY, BTN_LEFT);
-
 	return 0;
 }
 
@@ -88,37 +98,36 @@ static struct u31_usage_entry *usage_find_entry(struct axiom *ax, u16 usage)
 
 static void axiom_unpack_device_info(const u8 *buf, struct axiom_device_info *info)
 {
-    const __le16 *ptr = (const __le16 *)buf;
 	u16 w;
 
-    w = le16_to_cpu(ptr[0]);
+    w = get_unaligned_le16(buf);
     info->device_id = FIELD_GET(AX_DEV_ID_MASK, w);
     info->mode      = !!(w & AX_MODE);
 
-    w = le16_to_cpu(ptr[1]);
+    w = get_unaligned_le16(buf + 2);
 	info->runtime_fw_rev_minor = FIELD_GET(AX_FW_REV_MINOR_MASK, w);
     info->runtime_fw_rev_major = FIELD_GET(AX_FW_REV_MAJOR_MASK, w);
 
-    w = le16_to_cpu(ptr[2]);
+    w = get_unaligned_le16(buf + 4);
     info->device_build_variant = FIELD_GET(AX_VARIANT_MASK, w);
     info->runtime_fw_status    = !!(w & AX_FW_STATUS);
     info->tcp_revision         = FIELD_GET(AX_TCP_REV_MASK, w);
 
-    w = le16_to_cpu(ptr[3]);
+    w = get_unaligned_le16(buf + 6);
 	info->bootloader_fw_rev_minor = FIELD_GET(AX_BOOT_REV_MINOR_MASK, w);
     info->bootloader_fw_rev_major = FIELD_GET(AX_BOOT_REV_MAJOR_MASK, w);
 
-    info->jedec_id = le16_to_cpu(ptr[4]);
+    info->jedec_id = get_unaligned_le16(buf + 8);
 
-    w = le16_to_cpu(ptr[5]);
+    w = get_unaligned_le16(buf + 10);
     info->num_usages        = FIELD_GET(AX_NUM_USAGES_MASK, w);
     info->silicon_revision        = FIELD_GET(AX_SILICON_REV_MASK, w);
     info->runtime_fw_rev_patch = FIELD_GET(AX_RUNTIME_FW_PATCH_MASK, w);
 }
 
-static void axiom_unpack_usage_table(const u8 *buf, struct axiom *ax)
+static void axiom_unpack_usage_table(u8 *buf, struct axiom *ax)
 {	
-	__le16 *ptr = (__le16 *) buf;
+	u8 *ptr;
 	struct u31_usage_entry *entry;
 	int i;
 	u16 w;
@@ -127,18 +136,18 @@ static void axiom_unpack_usage_table(const u8 *buf, struct axiom *ax)
 	for (i = 0; i < ax->dev_info.num_usages && i < U31_MAX_USAGES; i++) {
 		entry = &ax->usage_table[i];
 		/* Calculate offset for this specific entry */
-		ptr = (__le16 *) (buf + (i * SIZE_U31_USAGE_ENTRY));
+		ptr = buf + (i * SIZE_U31_USAGE_ENTRY);
 
-		w = le16_to_cpu(ptr[0]);
+		w = get_unaligned_le16(ptr);
 		entry->usage_num  = FIELD_GET(AX_U31_USAGE_NUM_MASK, w);
 		entry->start_page = FIELD_GET(AX_U31_START_PAGE_MASK, w);
 
-		w = le16_to_cpu(ptr[1]);
+		w = get_unaligned_le16(ptr + 2);
 		entry->num_pages  = FIELD_GET(AX_U31_NUM_PAGES_MASK, w);
 		entry->max_offset = FIELD_GET(AX_U31_MAX_OFFSET_MASK, w);
 		entry->offset_type = !!(w & AX_U31_OFFSET_TYPE_BIT);
 
-		w = le16_to_cpu(ptr[2]);
+		w = get_unaligned_le16(ptr + 4);
 		entry->uifrevision = FIELD_GET(AX_U31_UIF_REV_MASK, w);
 		entry->usage_type  = FIELD_GET(AX_U31_USAGE_TYPE_MASK, w);
 	
@@ -221,158 +230,74 @@ static int axiom_init_dev_info(struct axiom *ax)
 	return 0;
 }
 
-static int axiom_rebaseline(struct axiom *ax)
-{
-	struct u31_usage_entry *u;
-	u8 buffer[8] = { 0 };
-	int err;
-
-	u = usage_find_entry(ax, 0x02);
-	if (IS_ERR(u))
-		return PTR_ERR(u);
-
-	/* Rebaseline request */
-	buffer[0] = 0x03;
-
-	err = ax->bus_ops->write(ax->dev, u->start_page << 8, sizeof(buffer),
-				 buffer);
-	if (err) {
-		dev_err(ax->dev, "Rebaseline failed\n");
-		return err;
-	}
-
-	dev_info(ax->dev, "Capture Baseline Requested\n");
-	return 0;
-}
-
-static bool axiom_process_u41_target(struct axiom *ax, struct u41_target *prev,
-				     const struct u41_target *target, int slot)
-{
-	bool update = false;
-
-	switch (target->state) {
-	case Target_State_Not_Present:
-	case Target_State_Prox:
-		if (prev->insert) {
-			prev->insert = false;
-			update = true;
-
-			input_mt_slot(ax->input, slot);
-			if (slot == 0)
-				input_report_key(ax->input, BTN_LEFT, false);
-
-			input_mt_report_slot_inactive(ax->input);
-
-			/* Off-screen coordinates for next touch */
-			prev->x = prev->y = 65535;
-			prev->z = -128;
-		}
-		break;
-
-	case Target_State_Hover:
-	case Target_State_Touching:
-		prev->insert = true;
-		update = true;
-
-		input_mt_slot(ax->input, slot);
-		input_report_abs(ax->input, ABS_MT_TRACKING_ID, slot);
-		input_report_abs(ax->input, ABS_MT_POSITION_X, target->x);
-		input_report_abs(ax->input, ABS_X, target->x);
-		input_report_abs(ax->input, ABS_MT_POSITION_Y, target->y);
-		input_report_abs(ax->input, ABS_Y, target->y);
-
-		if (target->state == Target_State_Touching) {
-			input_report_abs(ax->input, ABS_MT_DISTANCE, 0);
-			input_report_abs(ax->input, ABS_MT_PRESSURE, target->z);
-		} else { /* Hover */
-			input_report_abs(ax->input, ABS_MT_DISTANCE,
-					 -target->z);
-			input_report_abs(ax->input, ABS_DISTANCE, -target->z);
-			input_report_abs(ax->input, ABS_MT_PRESSURE, 0);
-			input_report_abs(ax->input, ABS_PRESSURE, 0);
-		}
-
-		if (slot == 0)
-			input_report_key(ax->input, BTN_LEFT,
-					 target->state ==
-						 Target_State_Touching);
-
-		break;
-
-	default:
-		break;
-	}
-
-	/* Update stored previous state */
-	prev->state = target->state;
-	prev->x = target->x;
-	prev->y = target->y;
-	prev->z = target->z;
-
-	return update;
-}
-
 static int axiom_process_u41_report(struct axiom *ax, u8 *report)
 {
-	const struct u41_report *r = (const struct u41_report *)report;
-	struct u41_target target;
-	struct u41_target *prev;
-	bool update = false;
-	int slot;
-	bool present;
 	int i;
+	u16 target_present;
+	bool active;
+	u8 offset;
+	enum u41_target_state_e state;
+	u16 x;
+	u16 y;
+	s8 z;
 
-	dev_dbg(ax->dev, "=== u41 report data ===\n");
+	target_present = FIELD_GET(AX_U41_PRESENT_MASK, get_unaligned_le16(&report[0]));
 
 	for (i = 0; i < U41_MAX_TARGETS; i++) {
-		prev = &ax->u41_targets[i];
+		active = !!((target_present >> i) & 1);
+		
+		offset = U41_X_Y_OFFSET + (i * U41_COORD_SIZE);
+		x = get_unaligned_le16(&report[offset]);
+		y = get_unaligned_le16(&report[offset + 2]);
+		z = report[U41_Z_OFFSET + i];
 
-		present = !!((r->target_present >> i) & 1);
-		target.index = i;
-		target.x = r->coord[i].x;
-		target.y = r->coord[i].y;
-		target.z = r->z[i];
-		target.state = ((present == 0)	? Target_State_Not_Present :
-				(target.z >= 0) ? Target_State_Touching :
-				(target.z > U41_PROX_LEVEL) && (target.z < 0) ?
-						  Target_State_Hover :
-				(target.z == U41_PROX_LEVEL) ?
-						  Target_State_Prox :
-						  Target_State_Not_Present);
+		if (!active) {
+			state = Target_State_Not_Present;
+		} else if (z >= 0) {
+			state = Target_State_Touching;
+		} else if ((z > U41_PROX_LEVEL) && (z < 0)) {
+			state = Target_State_Hover;
+		} else if (z == U41_PROX_LEVEL) {
+			state = Target_State_Prox;
+		} else {
+			state = Target_State_Not_Present;
+		}
+				
 		dev_dbg(ax->dev, "Target %d: x=%u y=%u z=%d present=%d\n", i,
-			target.x, target.y, target.z, present);
+			x, y, z, active);
 
-		slot = i;
-		if ((prev->state != target.state) || (prev->x != target.x) ||
-		    (prev->y != target.y) || (prev->z != target.z)) {
-			update |= axiom_process_u41_target(ax, prev, &target,
-							   slot);
+		switch (state) {
+		case Target_State_Not_Present:
+		case Target_State_Prox:
+
+			input_mt_slot(ax->input, i);
+			input_mt_report_slot_inactive(ax->input);
+			break;
+
+		case Target_State_Hover:
+		case Target_State_Touching:
+
+	 		input_mt_slot(ax->input, i);
+			input_report_abs(ax->input, ABS_MT_TRACKING_ID, i);
+			input_report_abs(ax->input, ABS_MT_POSITION_X, x);
+			input_report_abs(ax->input, ABS_MT_POSITION_Y, y);
+
+			if (state == Target_State_Touching) {
+				input_report_abs(ax->input, ABS_MT_DISTANCE, 0);
+				input_report_abs(ax->input, ABS_MT_PRESSURE, z);
+			} else { /* Hover */
+				input_report_abs(ax->input, ABS_MT_DISTANCE, -z);
+				input_report_abs(ax->input, ABS_MT_PRESSURE, 0);
+			}
+			break;
+
+		default:
+			break;
 		}
 	}
 
-	if (update) {
-		input_mt_sync_frame(ax->input);
-		input_sync(ax->input);
-	}
-	return 0;
-}
-
-static int check_revision(struct axiom *ax, u16 usage)
-{
-	struct u31_usage_entry *u;
-
-	u = usage_find_entry(ax, usage);
-	if (IS_ERR(u))
-		return PTR_ERR(u);
-
-	if (usage == AX_2DCTS_REPORT_ID) {
-		if (u->uifrevision != 6) {
-			dev_err(ax->dev,
-				"Unsupported revision %u for usage u%02x!\n",
-				u->uifrevision, u->usage_num);
-			return -ENOTSUPP;
-		}
-	}
+	input_mt_sync_frame(ax->input);
+	input_sync(ax->input);
 
 	return 0;
 }
@@ -380,18 +305,22 @@ static int check_revision(struct axiom *ax, u16 usage)
 static int axiom_process_report(struct axiom *ax, u8 *report)
 {
 	int err;
-	struct u34_report_header *u34_report =
-		(struct u34_report_header *)report;
+	struct u34_report_header hdr;
 	u16 crc_calc;
 	u16 crc_report;
 	u8 len;
 
 	dev_dbg(ax->dev, "Payload Data %*ph\n", ax->max_report_len, report);
 
-	len = u34_report->report_length << 1;
-	if (u34_report->report_length == 0) {
+	u16 hdr_buf = get_unaligned_le16(&report[0]);
+	hdr.report_length = FIELD_GET(AX_U34_LEN_MASK, hdr_buf);
+	hdr.overflow      = !!(hdr_buf & AX_U34_OVERFLOW);
+	hdr.report_usage  = FIELD_GET(AX_U34_USAGE_MASK, hdr_buf);
+
+	len = hdr.report_length << 1;
+	if (hdr.report_length == 0) {
 		dev_err(ax->dev, "Zero length report discarded.\n");
-		return -EBADMSG;
+		return -EIO;
 	}
 
 	// Length is 16 bit words and remove the size of the CRC16 itself
@@ -402,16 +331,12 @@ static int axiom_process_report(struct axiom *ax, u8 *report)
 		dev_err(ax->dev,
 			"CRC mismatch! Expected: %04X, Calculated CRC: %04X. Report discarded.\n",
 			crc_report, crc_calc);
-		return -EBADMSG;
+		return -EIO;
 	}
 
-	err = check_revision(ax, u34_report->report_usage);
-	if (err)
-		return -EBADMSG;
-
-	switch (u34_report->report_usage) {
+	switch (hdr.report_usage) {
 	case AX_2DCTS_REPORT_ID:
-		err = axiom_process_u41_report(ax, u34_report->payload_buf);
+		err = axiom_process_u41_report(ax, &report[AX_U34_PAYLOAD_BUFFER]);
 		break;
 
 	default:
@@ -472,10 +397,6 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 		dev_err(ax->dev, "Failed to read device info, err: %d\n", err);
 		return ERR_PTR(err);
 	}
-
-	err = axiom_rebaseline(ax);
-	if (err)
-		return ERR_PTR(err);
 
 	err = devm_request_threaded_irq(ax->dev, ax->irq, NULL, axiom_irq,
 					IRQF_TRIGGER_LOW | IRQF_ONESHOT,

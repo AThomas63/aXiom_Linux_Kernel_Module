@@ -40,7 +40,7 @@ static int axiom_i2c_read_block_data(struct device *dev, u16 addr, u16 length,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct axiom_cmd_header cmd_header = { .target_address = addr,
 					       .length = length,
-					       .read = AX_RD_OP };
+					       .rd_wr = AX_RD_OP };
 	
 	struct i2c_msg msgs[] = {
 		{
@@ -75,7 +75,7 @@ static int axiom_i2c_write_block_data(struct device *dev, u16 addr, u16 length,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct axiom_cmd_header cmd_header = { .target_address = addr,
 					       .length = length,
-					       .read = AX_WR_OP };
+					       .rd_wr = AX_WR_OP };
 
 	struct i2c_msg msgs[] = {
 		{

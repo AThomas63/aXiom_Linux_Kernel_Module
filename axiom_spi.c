@@ -46,7 +46,7 @@ static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 	struct spi_message msg;
 	struct axiom_cmd_header cmd_header = { .target_address = addr,
 					       .length = length,
-					       .read = op };
+					       .rd_wr = op };
 	u8 pad_buf[SPI_PADDING_LEN] = { 0 };
 
 	memset(&xfr_header, 0, sizeof(xfr_header));

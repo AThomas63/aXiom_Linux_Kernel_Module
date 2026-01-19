@@ -40,9 +40,7 @@
 enum ax_comms_op_e { AX_WR_OP = 0, AX_RD_OP = 1 };
 
 enum report_ids_e {
-	AX_HB_REPORT_ID = 0x01,
 	AX_2DCTS_REPORT_ID = 0x41,
-	AX_AUX_REPORT_ID = 0x46,
 };
 
 enum axiom_mode_e {
@@ -89,7 +87,7 @@ struct u31_usage_entry {
 struct axiom_cmd_header {
 	u16 target_address;
 	u16 length : 15;
-	u16 read : 1;
+	u16 rd_wr : 1;
 	u8 writeData[];
 };
 
@@ -106,15 +104,6 @@ enum u41_target_state_e {
 	Target_State_Touching = 3,
 };
 
-struct u41_target {
-	int index;
-	enum u41_target_state_e state;
-	u16 x;
-	u16 y;
-	s8 z;
-	bool insert;
-};
-
 struct axiom {
 	struct device *dev;
 	int irq;
@@ -125,37 +114,14 @@ struct axiom {
 	u16 max_report_len;
 	u16 u34_address;
 
-	struct u41_target u41_targets[U41_MAX_TARGETS];
-
 	u8 read_buf[AXIOM_MAX_READ_SIZE];
 };
 
 struct u34_report_header {
-	u16 report_length : 7;
-	u16 overflow : 1;
-	u16 report_usage : 8;
-
-	/* all other reports derive from this buffer */
-	u8 payload_buf[];
+	u8 report_length;
+	u8 overflow;
+	u8 report_usage;
 };
-
-_Static_assert(sizeof(struct u34_report_header) == 2,
-	       "u34_report_header must be 2 bytes");
-
-struct u41_report { // Revision 6
-	u16 target_present : 10;
-	u16 unused : 6;
-
-	struct {
-		u16 x;
-		u16 y;
-	} coord[U41_MAX_TARGETS];
-
-	s8 z[U41_MAX_TARGETS];
-};
-
-_Static_assert(sizeof(struct u41_report) == (2 + (5 * U41_MAX_TARGETS)),
-	       "u41_report size mismatch");
 
 struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 			  struct device *dev, int irq);
