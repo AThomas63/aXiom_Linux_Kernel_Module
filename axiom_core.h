@@ -37,7 +37,6 @@
 #define U41_PROX_LEVEL (-128)
 #define AXIOM_HOLDOFF_DELAY_US (40)
 
-
 enum ax_comms_op_e { AX_WR_OP = 0, AX_RD_OP = 1 };
 
 enum report_ids_e {
@@ -89,7 +88,6 @@ struct axiom_cmd_header {
 	u16 target_address;
 	u16 length : 15;
 	u16 rd_wr : 1;
-	u8 writeData[];
 };
 
 struct axiom_bus_ops {

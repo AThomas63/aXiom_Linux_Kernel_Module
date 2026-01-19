@@ -26,7 +26,6 @@
 #include <linux/input.h>
 #include "axiom_core.h"
 
-
 static int axiom_i2c_read_block_data(struct device *dev, u16 addr, u16 length,
 				     void *values)
 {
@@ -35,7 +34,7 @@ static int axiom_i2c_read_block_data(struct device *dev, u16 addr, u16 length,
 	struct axiom_cmd_header cmd_header = { .target_address = addr,
 					       .length = length,
 					       .rd_wr = AX_RD_OP };
-	
+
 	struct i2c_msg msgs[] = {
 		{
 			.addr = client->addr,
