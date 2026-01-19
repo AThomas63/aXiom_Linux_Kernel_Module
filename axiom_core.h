@@ -2,12 +2,13 @@
 /*
  * TouchNetix aXiom Touchscreen Driver
  *
- * Copyright (C) 2020-2023 TouchNetix Ltd.
+ * Copyright (C) 2020-2026 TouchNetix Ltd.
  *
  * Author(s): Mark Satterthwaite <mark.satterthwaite@touchnetix.com>
  *            Pedro Torruella <pedro.torruella@touchnetix.com>
  *            Bart Prescott <bartp@baasheep.co.uk>
  *            Hannah Rossiter <hannah.rossiter@touchnetix.com>
+ *            Andrew Thomas <andrew.thomas@touchnetix.com>
  *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
@@ -21,6 +22,7 @@
 
 #include <linux/input.h>
 
+#define AX_POLLING_PERIOD_MS (10)
 
 #define AXIOM_USE_TOUCHSCREEN_INTERFACE // registers the axiom device as a touch screen instead of as a mouse pointer
 #define U46_ENABLE_RAW_FORCE_DATA // enables the raw data for up to 4 force channels to be sent to the input subsystem
@@ -33,7 +35,6 @@
 #define U31_MAX_USAGES (85U)
 #define U41_MAX_TARGETS (10U)
 #define U41_PROX_LEVEL (-128)
-
 #define AXIOM_HOLDOFF_DELAY_US (40)
 
 

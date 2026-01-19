@@ -2,12 +2,13 @@
 /*
  * TouchNetix aXiom Touchscreen Driver
  *
- * Copyright (C) 2020-2023 TouchNetix Ltd.
+ * Copyright (C) 2020-2026 TouchNetix Ltd.
  *
  * Author(s): Mark Satterthwaite <mark.satterthwaite@touchnetix.com>
  *            Pedro Torruella <pedro.torruella@touchnetix.com>
  *            Bart Prescott <bartp@baasheep.co.uk>
  *            Hannah Rossiter <hannah.rossiter@touchnetix.com>
+ *            Andrew Thomas <andrew.thomas@touchnetix.com>
  *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
@@ -16,11 +17,12 @@
  *
  */
 
-#define DEBUG // Enable debug messages
+// #define DEBUG // Enable debug messages
 
 #include <linux/device.h>
 #include <linux/input/mt.h>
 #include <linux/crc16.h>
+#include <linux/property.h>
 #include <linux/interrupt.h>
 #include <linux/unaligned.h>
 #include "axiom_core.h"
@@ -59,6 +61,10 @@
 #define U41_X_Y_OFFSET (2) 
 #define U41_COORD_SIZE (4) 
 #define U41_Z_OFFSET (42)
+
+static const char *const fw_variants[] = {
+	"3D", "2D", "FORCE", "0D", "XL", "TOUCHPAD"
+};
 
 static int axiom_set_capabilities(struct input_dev *input_dev)
 {
@@ -173,18 +179,30 @@ static int axiom_init_dev_info(struct axiom *ax)
 		return -EIO;
 
 	axiom_unpack_device_info(ax->read_buf, &ax->dev_info);
+	
+	
+	const char *variant_str;
+	if (ax->dev_info.device_build_variant < ARRAY_SIZE(fw_variants)) {
+        variant_str = fw_variants[ax->dev_info.device_build_variant];
+    } else {
+        variant_str = "UNKNOWN";
+	}
+	char silicon_rev = (char)(0x41 + ax->dev_info.silicon_revision);
 
 	dev_info(ax->dev, "Firmware Info:\n");
-	dev_info(ax->dev, "  Bootloader Mode: %u\n", ax->dev_info.mode);
-	dev_info(ax->dev, "  Device ID      : %04x\n", ax->dev_info.device_id);
-	dev_info(ax->dev, "  Firmware Rev   : %02x.%02x\n",
-		 ax->dev_info.runtime_fw_rev_major,
-		 ax->dev_info.runtime_fw_rev_minor);
-	dev_info(ax->dev, "  Bootloader Rev : %02x.%02x\n",
+	dev_info(ax->dev, "  BL Mode     : %u\n", ax->dev_info.mode);
+	dev_info(ax->dev, "  Device ID   : %04x\n", ax->dev_info.device_id);
+	dev_info(ax->dev, "  FW Revision : %u.%u.%u-%s %s\n",
+         ax->dev_info.runtime_fw_rev_major,
+         ax->dev_info.runtime_fw_rev_minor,
+         ax->dev_info.runtime_fw_rev_patch,
+         (ax->dev_info.runtime_fw_status == 0) ? "eng" : "prod",
+         variant_str);
+	dev_info(ax->dev, "  BL Revision : %02x.%02x\n",
 		 ax->dev_info.bootloader_fw_rev_major,
 		 ax->dev_info.bootloader_fw_rev_minor);
-	dev_info(ax->dev, "  Silicon        : %02x\n", ax->dev_info.jedec_id);
-	dev_info(ax->dev, "  Num Usages     : %04x\n", ax->dev_info.num_usages);
+	dev_info(ax->dev, "  Silicon     : 0x%04X (Rev %c)\n", ax->dev_info.jedec_id, silicon_rev);
+	dev_info(ax->dev, "  Num Usages  : %u\n", ax->dev_info.num_usages);
 
 	if (ax->dev_info.num_usages > U31_MAX_USAGES) {
 		dev_err(ax->dev,
@@ -346,6 +364,22 @@ static int axiom_process_report(struct axiom *ax, u8 *report)
 	return err;
 }
 
+static void axiom_poll(struct input_dev *input_dev)
+{
+	struct axiom *ax = input_get_drvdata(input_dev);
+	int err;
+
+	/* Read touch reports from u34 */
+	err = ax->bus_ops->read(ax->dev, ax->u34_address, ax->max_report_len,
+				ax->read_buf);
+	if (err)
+		return;
+
+	err = axiom_process_report(ax, ax->read_buf);
+	if (err)
+		dev_err(ax->dev, "Failed to process report: %d\n", err);
+}
+
 static irqreturn_t axiom_irq(int irq, void *handle)
 {
 	struct axiom *ax = handle;
@@ -371,6 +405,8 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 	struct axiom *ax;
 	struct input_dev *input_dev;
 	int err;
+	bool poll_enable = false;
+	u8 poll_period = 0;
 
 	ax = devm_kzalloc(dev, sizeof(*ax), GFP_KERNEL);
 	if (!ax)
@@ -382,14 +418,24 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 		return ERR_PTR(-ENOMEM);
 	}
 
+	poll_enable = device_property_read_bool(dev, "axiom,poll-enable");
+
+	device_property_read_u8(dev, "axiom,poll-period", &poll_period);
+	if (!poll_period) {
+		poll_period = AX_POLLING_PERIOD_MS;
+	}
+
 	ax->dev = dev;
 	ax->input = input_dev;
 	ax->bus_ops = bus_ops;
 	ax->irq = irq;
 
 	dev_info(dev, "aXiom Probe\n");
-	dev_info(dev, "Device IRQ: %u\n", ax->irq);
-
+	if(poll_enable){
+		dev_info(dev, "Polling Period : %u\n", poll_period);
+	} else {		
+		dev_info(dev, "Device IRQ : %u\n", ax->irq);
+	}
 	axiom_set_capabilities(input_dev);
 
 	err = axiom_init_dev_info(ax);
@@ -398,11 +444,22 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 		return ERR_PTR(err);
 	}
 
-	err = devm_request_threaded_irq(ax->dev, ax->irq, NULL, axiom_irq,
-					IRQF_TRIGGER_LOW | IRQF_ONESHOT,
-					"axiom_irq", ax);
-	if (err)
-		return ERR_PTR(err);
+	if (poll_enable) { 
+		err = input_setup_polling(input_dev, axiom_poll);
+		if (err) {
+			dev_err(ax->dev, "could not set up polling mode, %d\n", err);
+			return ERR_PTR(err);
+		}
+
+		input_set_poll_interval(input_dev, poll_period);
+	} else {
+		err = devm_request_threaded_irq(ax->dev, ax->irq, NULL, axiom_irq,
+						IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+						"axiom_irq", ax);
+		if (err) {
+			return ERR_PTR(err);
+		}
+	}
 
 	err = input_register_device(input_dev);
 	if (err) {
@@ -410,6 +467,8 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 		return ERR_PTR(err);
 	}
 
+	input_set_drvdata(input_dev, ax);
+	
 	return ax;
 }
 EXPORT_SYMBOL_GPL(axiom_probe);

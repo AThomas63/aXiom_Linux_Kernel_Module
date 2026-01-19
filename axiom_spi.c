@@ -7,6 +7,7 @@
  * Author(s): Mark Satterthwaite <mark.satterthwaite@touchnetix.com>
  *            Bart Prescott <bartp@baasheep.co.uk>
  *            Hannah Rossiter <hannah.rossiter@touchnetix.com>
+ *            Andrew Thomas <andrew.thomas@touchnetix.com>
  *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
@@ -26,14 +27,6 @@
 #include "axiom_core.h"
 
 #define SPI_PADDING_LEN 32
-
-static bool poll_enable;
-module_param(poll_enable, bool, 0444);
-MODULE_PARM_DESC(poll_enable, "Enable polling mode [default 0=no]");
-
-static int poll_interval;
-module_param(poll_interval, int, 0444);
-MODULE_PARM_DESC(poll_interval, "Polling period in ms [default = 100]");
 
 static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 			      u16 addr, u16 length, void *values)
@@ -129,8 +122,6 @@ static int axiom_spi_probe(struct spi_device *spi)
 	if (IS_ERR(axiom))
 		return dev_err_probe(&spi->dev, PTR_ERR(axiom),
 				     "failed to register input device\n");
-
-	spi_set_drvdata(spi, axiom);
 
 	return 0;
 }

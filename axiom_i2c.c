@@ -2,12 +2,13 @@
 /*
  * TouchNetix aXiom Touchscreen Driver
  *
- * Copyright (C) 2020-2023 TouchNetix Ltd.
+ * Copyright (C) 2020-2026 TouchNetix Ltd.
  *
  * Author(s): Bart Prescott <bartp@baasheep.co.uk>
  *            Pedro Torruella <pedro.torruella@touchnetix.com>
  *            Mark Satterthwaite <mark.satterthwaite@touchnetix.com>
  *            Hannah Rossiter <hannah.rossiter@touchnetix.com>
+ *            Andrew Thomas <andrew.thomas@touchnetix.com>
  *
  * This program is free software; you can redistribute  it and/or modify it
  * under  the terms of  the GNU General  Public License as published by the
@@ -25,13 +26,6 @@
 #include <linux/input.h>
 #include "axiom_core.h"
 
-static bool poll_enable;
-module_param(poll_enable, bool, 0444);
-MODULE_PARM_DESC(poll_enable, "Enable polling mode [default 0=no]");
-
-static int poll_interval;
-module_param(poll_interval, int, 0444);
-MODULE_PARM_DESC(poll_interval, "Polling period in ms [default = 100]");
 
 static int axiom_i2c_read_block_data(struct device *dev, u16 addr, u16 length,
 				     void *values)
@@ -122,8 +116,6 @@ static int axiom_i2c_probe(struct i2c_client *client)
 	if (IS_ERR(axiom))
 		return dev_err_probe(&client->dev, PTR_ERR(axiom),
 				     "failed to register input device\n");
-
-	i2c_set_clientdata(client, axiom);
 
 	return 0;
 }
