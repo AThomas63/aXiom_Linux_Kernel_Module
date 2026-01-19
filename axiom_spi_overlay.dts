@@ -53,7 +53,7 @@
 			#address-cells = < 0x01 >;
 			#size-cells = < 0x00 >;
 			axiom_spi@0 {
-				compatible = "axiom_spi_drv,axiom";
+				compatible = "axiom_spi,axiom";
 				reg = < 0x00 >; /* nCE0 on GPIO8 (on Pi Header pin 24) */
 				#address-cells = < 0x01 >;
 				#size-cells = < 0x00 >;

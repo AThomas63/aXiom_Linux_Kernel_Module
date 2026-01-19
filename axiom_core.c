@@ -16,7 +16,7 @@
  *
  */
 
-// #define DEBUG // Enable debug messages
+#define DEBUG // Enable debug messages
 
 #include <linux/device.h>
 #include <linux/input.h>
@@ -24,6 +24,29 @@
 #include <linux/crc16.h>
 #include <linux/interrupt.h>
 #include "axiom_core.h"
+
+/* u31 device info masks */
+#define AX_DEV_ID_MASK      GENMASK(14, 0)
+#define AX_MODE        BIT(15)
+#define AX_FW_REV_MINOR_MASK    GENMASK(7, 0)
+#define AX_FW_REV_MAJOR_MASK    GENMASK(15, 8)
+#define AX_VARIANT_MASK     GENMASK(5, 0)
+#define AX_FW_STATUS   BIT(7)
+#define AX_TCP_REV_MASK            GENMASK(15, 8)
+#define AX_BOOT_REV_MINOR_MASK     GENMASK(7, 0)
+#define AX_BOOT_REV_MAJOR_MASK     GENMASK(15, 8)
+#define AX_NUM_USAGES_MASK       GENMASK(7, 0)
+#define AX_SILICON_REV_MASK GENMASK(11, 8)
+#define AX_RUNTIME_FW_PATCH_MASK       GENMASK(15, 12)
+
+/* u31 usage table entry masks */
+#define AX_U31_USAGE_NUM_MASK      GENMASK(7, 0)
+#define AX_U31_START_PAGE_MASK     GENMASK(15, 8)
+#define AX_U31_NUM_PAGES_MASK      GENMASK(7, 0)
+#define AX_U31_MAX_OFFSET_MASK     GENMASK(14, 8)
+#define AX_U31_OFFSET_TYPE_BIT     BIT(15)
+#define AX_U31_UIF_REV_MASK        GENMASK(7, 0)
+#define AX_U31_USAGE_TYPE_MASK     GENMASK(15, 8)
 
 static int axiom_set_capabilities(struct input_dev *input_dev)
 {
@@ -43,27 +66,9 @@ static int axiom_set_capabilities(struct input_dev *input_dev)
 	input_set_abs_params(input_dev, ABS_MT_DISTANCE, 0, 127, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_PRESSURE, 0, 127, 0, 0);
 
-#ifdef AXIOM_USE_TOUCHSCREEN_INTERFACE
 	input_mt_init_slots(input_dev, U41_MAX_TARGETS, INPUT_MT_DIRECT);
-#else //TABLET_INTERFACE (emulates mouse pointer as expected)
-	input_abs_set_res(input_dev, ABS_MT_POSITION_X, 100);
-	input_abs_set_res(input_dev, ABS_MT_POSITION_Y, 100);
-	input_abs_set_res(input_dev, ABS_X, 100);
-	input_abs_set_res(input_dev, ABS_Y, 100);
-	input_mt_init_slots(input_dev, U41_MAX_TARGETS, INPUT_MT_POINTER);
-
-	input_set_abs_params(input_dev, ABS_DISTANCE, 0, 127, 0, 0);
-	input_set_abs_params(input_dev, ABS_PRESSURE, 0, 127, 0, 0);
-	input_set_capability(input_dev, EV_KEY, BTN_TOOL_PEN);
-#endif
 
 	input_set_capability(input_dev, EV_KEY, BTN_LEFT);
-
-	// Force
-	set_bit(EV_REL, input_dev->evbit);
-	set_bit(EV_MSC, input_dev->evbit);
-	// Declare that we support "RAW" Miscellaneous events
-	set_bit(MSC_RAW, input_dev->mscbit);
 
 	return 0;
 }
@@ -81,18 +86,84 @@ static struct u31_usage_entry *usage_find_entry(struct axiom *ax, u16 usage)
 	return ERR_PTR(-EINVAL);
 }
 
+static void axiom_unpack_device_info(const u8 *buf, struct axiom_device_info *info)
+{
+    const __le16 *ptr = (const __le16 *)buf;
+	u16 w;
+
+    w = le16_to_cpu(ptr[0]);
+    info->device_id = FIELD_GET(AX_DEV_ID_MASK, w);
+    info->mode      = !!(w & AX_MODE);
+
+    w = le16_to_cpu(ptr[1]);
+	info->runtime_fw_rev_minor = FIELD_GET(AX_FW_REV_MINOR_MASK, w);
+    info->runtime_fw_rev_major = FIELD_GET(AX_FW_REV_MAJOR_MASK, w);
+
+    w = le16_to_cpu(ptr[2]);
+    info->device_build_variant = FIELD_GET(AX_VARIANT_MASK, w);
+    info->runtime_fw_status    = !!(w & AX_FW_STATUS);
+    info->tcp_revision         = FIELD_GET(AX_TCP_REV_MASK, w);
+
+    w = le16_to_cpu(ptr[3]);
+	info->bootloader_fw_rev_minor = FIELD_GET(AX_BOOT_REV_MINOR_MASK, w);
+    info->bootloader_fw_rev_major = FIELD_GET(AX_BOOT_REV_MAJOR_MASK, w);
+
+    info->jedec_id = le16_to_cpu(ptr[4]);
+
+    w = le16_to_cpu(ptr[5]);
+    info->num_usages        = FIELD_GET(AX_NUM_USAGES_MASK, w);
+    info->silicon_revision        = FIELD_GET(AX_SILICON_REV_MASK, w);
+    info->runtime_fw_rev_patch = FIELD_GET(AX_RUNTIME_FW_PATCH_MASK, w);
+}
+
+static void axiom_unpack_usage_table(const u8 *buf, struct axiom *ax)
+{	
+	__le16 *ptr = (__le16 *) buf;
+	struct u31_usage_entry *entry;
+	int i;
+	u16 w;
+	u16 report_len;
+
+	for (i = 0; i < ax->dev_info.num_usages && i < U31_MAX_USAGES; i++) {
+		entry = &ax->usage_table[i];
+		/* Calculate offset for this specific entry */
+		ptr = (__le16 *) (buf + (i * SIZE_U31_USAGE_ENTRY));
+
+		w = le16_to_cpu(ptr[0]);
+		entry->usage_num  = FIELD_GET(AX_U31_USAGE_NUM_MASK, w);
+		entry->start_page = FIELD_GET(AX_U31_START_PAGE_MASK, w);
+
+		w = le16_to_cpu(ptr[1]);
+		entry->num_pages  = FIELD_GET(AX_U31_NUM_PAGES_MASK, w);
+		entry->max_offset = FIELD_GET(AX_U31_MAX_OFFSET_MASK, w);
+		entry->offset_type = !!(w & AX_U31_OFFSET_TYPE_BIT);
+
+		w = le16_to_cpu(ptr[2]);
+		entry->uifrevision = FIELD_GET(AX_U31_UIF_REV_MASK, w);
+		entry->usage_type  = FIELD_GET(AX_U31_USAGE_TYPE_MASK, w);
+	
+		// Convert words to bytes
+		report_len = (entry->max_offset + 1) * 2;
+		if ((entry->usage_type == REPORT) &&
+			(report_len > ax->max_report_len)) {
+				ax->max_report_len = report_len;
+		}
+	}
+}
+
 static int axiom_init_dev_info(struct axiom *ax)
 {
 	int i;
 	struct u31_usage_entry *u;
 	int err;
-	u16 report_len;
 
 	/* Read page 0 of u31 */
-	err = ax->bus_ops->read(ax->dev, 0x0, sizeof(ax->dev_info),
-				(u8 *)&ax->dev_info);
+	err = ax->bus_ops->read(ax->dev, 0x0, SIZE_U31_DEVICE_INFO,
+				ax->read_buf);
 	if (err)
 		return -EIO;
+
+	axiom_unpack_device_info(ax->read_buf, &ax->dev_info);
 
 	dev_info(ax->dev, "Firmware Info:\n");
 	dev_info(ax->dev, "  Bootloader Mode: %u\n", ax->dev_info.mode);
@@ -116,10 +187,12 @@ static int axiom_init_dev_info(struct axiom *ax)
 	/* Read the second page of u31 to get the usage table */
 	err = ax->bus_ops->read(ax->dev, 0x100,
 				sizeof(ax->usage_table[0]) *
-					ax->dev_info.num_usages,
-				(u8 *)&ax->usage_table);
+				ax->dev_info.num_usages,
+				ax->read_buf);
 	if (err)
 		return -EIO;
+	
+	axiom_unpack_usage_table(ax->read_buf, ax);
 
 	dev_info(ax->dev, "Usage Table:\n");
 	for (i = 0; i < ax->dev_info.num_usages; i++) {
@@ -129,20 +202,13 @@ static int axiom_init_dev_info(struct axiom *ax)
 			"  Usage: u%02x  Rev: %3u  Page: 0x%02x00  Num Pages: %3u\n",
 			u->usage_num, u->uifrevision, u->start_page,
 			u->num_pages);
-
-		// Convert words to bytes
-		report_len = (u->max_offset + 1) * 2;
-		if ((u->usage_type == REPORT) &&
-		    (report_len > ax->max_report_len)) {
-			ax->max_report_len = report_len;
-		}
 	}
 	dev_info(ax->dev, "Max Report Length: %u\n", ax->max_report_len);
 
-	if (ax->max_report_len > MAX_REPORT_LEN) {
+	if (ax->max_report_len > AXIOM_MAX_READ_SIZE) {
 		dev_err(ax->dev,
 			"aXiom maximum report length (%u) greater than allocated buffer size (%u).",
-			ax->max_report_len, MAX_REPORT_LEN);
+			ax->max_report_len, AXIOM_MAX_READ_SIZE);
 		return -EINVAL;
 	}
 
@@ -362,11 +428,11 @@ static irqreturn_t axiom_irq(int irq, void *handle)
 
 	/* Read touch reports from u34 */
 	err = ax->bus_ops->read(ax->dev, ax->u34_address, ax->max_report_len,
-				ax->report_buf);
+				ax->read_buf);
 	if (err)
 		goto out;
 
-	err = axiom_process_report(ax, ax->report_buf);
+	err = axiom_process_report(ax, ax->read_buf);
 	if (err)
 		dev_err(ax->dev, "Failed to process report: %d\n", err);
 

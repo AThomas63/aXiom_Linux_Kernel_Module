@@ -19,22 +19,23 @@
 #ifndef __AXIOM_CORE_H
 #define __AXIOM_CORE_H
 
-////////////////////////////////////////////////////////////////////////////////
-//USER OPTIONS
+#include <linux/input.h>
+
 
 #define AXIOM_USE_TOUCHSCREEN_INTERFACE // registers the axiom device as a touch screen instead of as a mouse pointer
 #define U46_ENABLE_RAW_FORCE_DATA // enables the raw data for up to 4 force channels to be sent to the input subsystem
-////////////////////////////////////////////////////////////////////////////////
 
-// u31 has 2 pages for usage table entries. (2 * AX_COMMS_PAGE_SIZE) / U31_BYTES_PER_USAGE = 85
+#define AXIOM_PAGE_SIZE (256)
+// u31 has 2 pages for usage table entries. (2 * PAGE_SIZE) / U31_BYTES_PER_USAGE = 85
+#define AXIOM_MAX_READ_SIZE (2 * AXIOM_PAGE_SIZE)
+#define SIZE_U31_DEVICE_INFO (12)
+#define SIZE_U31_USAGE_ENTRY (6)
 #define U31_MAX_USAGES (85U)
 #define U41_MAX_TARGETS (10U)
 #define U41_PROX_LEVEL (-128)
-#define MAX_REPORT_LEN (58)
 
 #define AXIOM_HOLDOFF_DELAY_US (40)
 
-#include <linux/input.h>
 
 enum ax_comms_op_e { AX_WR_OP = 0, AX_RD_OP = 1 };
 
@@ -60,37 +61,30 @@ enum usage_type_e {
 };
 
 struct axiom_device_info {
-	u16 device_id : 15;
-	u16 mode : 1;
-	u16 runtime_fw_rev_minor : 8;
-	u16 runtime_fw_rev_major : 8;
-	u16 device_build_variant : 6;
-	u16 pad_bit6 : 1;
-	u16 runtime_fw_status : 1;
-	u16 tcp_revision : 8;
-	u16 bootloader_fw_rev_minor : 8;
-	u16 bootloader_fw_rev_major : 8;
-	u16 jedec_id;
-	u16 num_usages : 8;
-	u16 silicon_revision : 4;
-	u16 runtime_fw_rev_patch : 4;
+	u16 device_id;
+	u8 mode;
+	u8 runtime_fw_rev_minor;
+	u8 runtime_fw_rev_major;
+	u8 device_build_variant;
+	u8 runtime_fw_status;
+	u8 tcp_revision;
+	u8 bootloader_fw_rev_minor;
+	u8 bootloader_fw_rev_major;
+	u8 jedec_id;
+	u8 num_usages;
+	u8 silicon_revision;
+	u8 runtime_fw_rev_patch;
 };
-
-_Static_assert(sizeof(struct axiom_device_info) == 12,
-	       "axiom_device_info must be 12 bytes");
 
 struct u31_usage_entry {
-	u16 usage_num : 8;
-	u16 start_page : 8;
-	u16 num_pages : 8;
-	u16 max_offset : 7;
-	u16 offset_type : 1;
-	u16 uifrevision : 8;
-	u16 usage_type : 8;
+	u8 usage_num;
+	u8 start_page;
+	u8 num_pages;
+	u8 max_offset;
+	u8 offset_type;
+	u8 uifrevision;
+	u8 usage_type;
 };
-
-_Static_assert(sizeof(struct u31_usage_entry) == 6,
-	       "u31_usage_entry must be 6 bytes");
 
 struct axiom_cmd_header {
 	u16 target_address;
@@ -133,7 +127,7 @@ struct axiom {
 
 	struct u41_target u41_targets[U41_MAX_TARGETS];
 
-	u8 report_buf[MAX_REPORT_LEN] ____cacheline_aligned;
+	u8 read_buf[AXIOM_MAX_READ_SIZE];
 };
 
 struct u34_report_header {
