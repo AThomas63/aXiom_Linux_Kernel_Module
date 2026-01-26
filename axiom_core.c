@@ -9,15 +9,7 @@
  *            Bart Prescott <bartp@baasheep.co.uk>
  *            Hannah Rossiter <hannah.rossiter@touchnetix.com>
  *            Andrew Thomas <andrew.thomas@touchnetix.com>
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
- *
  */
-
-// #define DEBUG // Enable debug messages
 
 #include <linux/device.h>
 #include <linux/input/mt.h>
@@ -25,50 +17,65 @@
 #include <linux/property.h>
 #include <linux/interrupt.h>
 #include <linux/unaligned.h>
+#include <linux/bitfield.h>
 #include "axiom_core.h"
 
+static bool poll_enable;
+module_param(poll_enable, bool, 0444);
+MODULE_PARM_DESC(poll_enable, "Enable polling mode [default 0=no]");
+
+static int poll_period = 10;
+module_param(poll_period, uint, 0444);
+MODULE_PARM_DESC(poll_period, "Polling period in ms [default = 10]");
+
 /* u31 device info masks */
-#define AX_DEV_ID_MASK GENMASK(14, 0)
-#define AX_MODE BIT(15)
-#define AX_FW_REV_MINOR_MASK GENMASK(7, 0)
-#define AX_FW_REV_MAJOR_MASK GENMASK(15, 8)
-#define AX_VARIANT_MASK GENMASK(5, 0)
-#define AX_FW_STATUS BIT(7)
-#define AX_TCP_REV_MASK GENMASK(15, 8)
-#define AX_BOOT_REV_MINOR_MASK GENMASK(7, 0)
-#define AX_BOOT_REV_MAJOR_MASK GENMASK(15, 8)
-#define AX_NUM_USAGES_MASK GENMASK(7, 0)
-#define AX_SILICON_REV_MASK GENMASK(11, 8)
-#define AX_RUNTIME_FW_PATCH_MASK GENMASK(15, 12)
+#define AX_DEV_ID_MASK				GENMASK(14, 0)
+#define AX_MODE						BIT(15)
+#define AX_FW_REV_MINOR_MASK		GENMASK(7, 0)
+#define AX_FW_REV_MAJOR_MASK		GENMASK(15, 8)
+#define AX_VARIANT_MASK				GENMASK(5, 0)
+#define AX_FW_STATUS				BIT(7)
+#define AX_TCP_REV_MASK				GENMASK(15, 8)
+#define AX_BOOT_REV_MINOR_MASK		GENMASK(7, 0)
+#define AX_BOOT_REV_MAJOR_MASK		GENMASK(15, 8)
+#define AX_NUM_USAGES_MASK			GENMASK(7, 0)
+#define AX_SILICON_REV_MASK			GENMASK(11, 8)
+#define AX_RUNTIME_FW_PATCH_MASK	GENMASK(15, 12)
 
 /* u31 usage table entry masks */
-#define AX_U31_USAGE_NUM_MASK GENMASK(7, 0)
-#define AX_U31_START_PAGE_MASK GENMASK(15, 8)
-#define AX_U31_NUM_PAGES_MASK GENMASK(7, 0)
-#define AX_U31_MAX_OFFSET_MASK GENMASK(14, 8)
-#define AX_U31_OFFSET_TYPE_BIT BIT(15)
-#define AX_U31_UIF_REV_MASK GENMASK(7, 0)
-#define AX_U31_USAGE_TYPE_MASK GENMASK(15, 8)
+#define AX_U31_USAGE_NUM_MASK		GENMASK(7, 0)
+#define AX_U31_START_PAGE_MASK		GENMASK(15, 8)
+#define AX_U31_NUM_PAGES_MASK		GENMASK(7, 0)
+#define AX_U31_MAX_OFFSET_MASK		GENMASK(14, 8)
+#define AX_U31_OFFSET_TYPE_BIT		BIT(15)
+#define AX_U31_UIF_REV_MASK			GENMASK(7, 0)
+#define AX_U31_USAGE_TYPE_MASK		GENMASK(15, 8)
 
 /* u34 report masks */
-#define AX_U34_LEN_MASK GENMASK(6, 0)
-#define AX_U34_OVERFLOW BIT(7)
-#define AX_U34_USAGE_MASK GENMASK(15, 8)
-#define AX_U34_PAYLOAD_BUFFER 2
+#define AX_U34_LEN_MASK				GENMASK(6, 0)
+#define AX_U34_OVERFLOW				BIT(7)
+#define AX_U34_USAGE_MASK			GENMASK(15, 8)
+#define AX_U34_PAYLOAD_BUFFER		(2)
 
 /* u41 report masks */
-#define AX_U41_PRESENT_MASK GENMASK(9, 0)
-#define U41_X_Y_OFFSET (2)
-#define U41_COORD_SIZE (4)
-#define U41_Z_OFFSET (42)
+#define AX_U41_PRESENT_MASK			GENMASK(9, 0)
+#define U41_X_Y_OFFSET				(2)
+#define U41_COORD_SIZE				(4)
+#define U41_Z_OFFSET				(42)
 
-static const char *const fw_variants[] = { "3D", "2D", "FORCE",
-					   "0D", "XL", "TOUCHPAD" };
+static const char *const fw_variants[] = {
+	"3D",
+	"2D",
+	"FORCE",
+	"0D",
+	"XL",
+	"TOUCHPAD",
+};
 
 static int axiom_set_capabilities(struct input_dev *input_dev)
 {
 	input_dev->name = "TouchNetix aXiom Touchscreen";
-	input_dev->phys = "input/axiom_ts";
+	input_dev->phys = "input/ts";
 
 	// Single Touch
 	input_set_abs_params(input_dev, ABS_X, 0, 65535, 0, 0);
@@ -83,6 +90,8 @@ static int axiom_set_capabilities(struct input_dev *input_dev)
 	input_set_abs_params(input_dev, ABS_MT_DISTANCE, 0, 127, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_PRESSURE, 0, 127, 0, 0);
 
+	// each report id in u41 can be configured separately in u42,
+	// to keep it simple have all reports ids be touch.
 	input_mt_init_slots(input_dev, U41_MAX_TARGETS, INPUT_MT_DIRECT);
 
 	return 0;
@@ -159,8 +168,8 @@ static void axiom_unpack_usage_table(u8 *buf, struct axiom *ax)
 
 		// Convert words to bytes
 		report_len = (entry->max_offset + 1) * 2;
-		if ((entry->usage_type == REPORT) &&
-		    (report_len > ax->max_report_len)) {
+		if (entry->usage_type == REPORT &&
+		    report_len > ax->max_report_len) {
 			ax->max_report_len = report_len;
 		}
 	}
@@ -171,6 +180,7 @@ static int axiom_init_dev_info(struct axiom *ax)
 	int i;
 	struct u31_usage_entry *u;
 	int err;
+	const char *variant_str;
 
 	/* Read page 0 of u31 */
 	err = ax->bus_ops->read(ax->dev, 0x0, SIZE_U31_DEVICE_INFO,
@@ -180,7 +190,6 @@ static int axiom_init_dev_info(struct axiom *ax)
 
 	axiom_unpack_device_info(ax->read_buf, &ax->dev_info);
 
-	const char *variant_str;
 	if (ax->dev_info.device_build_variant < ARRAY_SIZE(fw_variants)) {
 		variant_str = fw_variants[ax->dev_info.device_build_variant];
 	} else {
@@ -225,13 +234,10 @@ static int axiom_init_dev_info(struct axiom *ax)
 	for (i = 0; i < ax->dev_info.num_usages; i++) {
 		u = &ax->usage_table[i];
 
-		dev_info(
-			ax->dev,
-			"  Usage: u%02x  Rev: %3u  Page: 0x%02x00  Num Pages: %3u\n",
+		dev_info(ax->dev, "  Usage: u%02x  Rev: %3u  Page: 0x%02x00  Num Pages: %3u\n",
 			u->usage_num, u->uifrevision, u->start_page,
 			u->num_pages);
 	}
-	dev_info(ax->dev, "Max Report Length: %u\n", ax->max_report_len);
 
 	if (ax->max_report_len > AXIOM_MAX_READ_SIZE) {
 		dev_err(ax->dev,
@@ -272,36 +278,36 @@ static int axiom_process_u41_report(struct axiom *ax, u8 *report)
 		z = report[U41_Z_OFFSET + i];
 
 		if (!active)
-			state = Target_State_Not_Present;
+			state = target_state_not_present;
 		else if (z >= 0)
-			state = Target_State_Touching;
+			state = target_state_touching;
 		else if ((z > U41_PROX_LEVEL) && (z < 0))
-			state = Target_State_Hover;
+			state = target_state_hover;
 		else if (z == U41_PROX_LEVEL)
-			state = Target_State_Prox;
+			state = target_state_prox;
 		else
-			state = Target_State_Not_Present;
+			state = target_state_not_present;
 
 		dev_dbg(ax->dev, "Target %d: x=%u y=%u z=%d present=%d\n", i, x,
 			y, z, active);
 
 		switch (state) {
-		case Target_State_Not_Present:
-		case Target_State_Prox:
+		case target_state_not_present:
+		case target_state_prox:
 
 			input_mt_slot(ax->input, i);
 			input_mt_report_slot_inactive(ax->input);
 			break;
 
-		case Target_State_Hover:
-		case Target_State_Touching:
+		case target_state_hover:
+		case target_state_touching:
 
 			input_mt_slot(ax->input, i);
 			input_report_abs(ax->input, ABS_MT_TRACKING_ID, i);
 			input_report_abs(ax->input, ABS_MT_POSITION_X, x);
 			input_report_abs(ax->input, ABS_MT_POSITION_Y, y);
 
-			if (state == Target_State_Touching) {
+			if (state == target_state_touching) {
 				input_report_abs(ax->input, ABS_MT_DISTANCE, 0);
 				input_report_abs(ax->input, ABS_MT_PRESSURE, z);
 			} else { /* Hover */
@@ -407,8 +413,6 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 	struct axiom *ax;
 	struct input_dev *input_dev;
 	int err;
-	bool poll_enable = false;
-	u8 poll_period = 0;
 
 	ax = devm_kzalloc(dev, sizeof(*ax), GFP_KERNEL);
 	if (!ax)
@@ -419,12 +423,6 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 		pr_err("ERROR: aXiom-core: Failed to allocate memory for input device!\n");
 		return ERR_PTR(-ENOMEM);
 	}
-
-	poll_enable = device_property_read_bool(dev, "axiom,poll-enable");
-
-	device_property_read_u8(dev, "axiom,poll-period", &poll_period);
-	if (!poll_period)
-		poll_period = AX_POLLING_PERIOD_MS;
 
 	ax->dev = dev;
 	ax->input = input_dev;
@@ -478,5 +476,3 @@ EXPORT_SYMBOL_GPL(axiom_probe);
 MODULE_AUTHOR("TouchNetix <support@touchnetix.com>");
 MODULE_DESCRIPTION("aXiom touchscreen core logic");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("axiom");
-MODULE_VERSION("1.0.0");

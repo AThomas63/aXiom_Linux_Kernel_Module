@@ -9,12 +9,6 @@
  *            Bart Prescott <bartp@baasheep.co.uk>
  *            Hannah Rossiter <hannah.rossiter@touchnetix.com>
  *            Andrew Thomas <andrew.thomas@touchnetix.com>
- *
- * This program is free software; you can redistribute  it and/or modify it
- * under  the terms of  the GNU General  Public License as published by the
- * Free Software Foundation;  either version 2 of the  License, or (at your
- * option) any later version.
- *
  */
 
 #ifndef __AXIOM_CORE_H
@@ -22,20 +16,17 @@
 
 #include <linux/input.h>
 
-#define AX_POLLING_PERIOD_MS (10)
+#define AX_POLLING_PERIOD_MS	(10)
 
-#define AXIOM_USE_TOUCHSCREEN_INTERFACE // registers the axiom device as a touch screen instead of as a mouse pointer
-#define U46_ENABLE_RAW_FORCE_DATA // enables the raw data for up to 4 force channels to be sent to the input subsystem
-
-#define AXIOM_PAGE_SIZE (256)
+#define AXIOM_PAGE_SIZE			(256)
 // u31 has 2 pages for usage table entries. (2 * PAGE_SIZE) / U31_BYTES_PER_USAGE = 85
-#define AXIOM_MAX_READ_SIZE (2 * AXIOM_PAGE_SIZE)
-#define SIZE_U31_DEVICE_INFO (12)
-#define SIZE_U31_USAGE_ENTRY (6)
-#define U31_MAX_USAGES (85U)
-#define U41_MAX_TARGETS (10U)
-#define U41_PROX_LEVEL (-128)
-#define AXIOM_HOLDOFF_DELAY_US (40)
+#define AXIOM_MAX_READ_SIZE		(2 * AXIOM_PAGE_SIZE)
+#define SIZE_U31_DEVICE_INFO	(12)
+#define SIZE_U31_USAGE_ENTRY	(6)
+#define U31_MAX_USAGES			(85U)
+#define U41_MAX_TARGETS			(10U)
+#define U41_PROX_LEVEL			(-128)
+#define AXIOM_HOLDOFF_DELAY_US	(40)
 
 enum ax_comms_op_e { AX_WR_OP = 0, AX_RD_OP = 1 };
 
@@ -85,10 +76,9 @@ struct u31_usage_entry {
 };
 
 struct axiom_cmd_header {
-	u16 target_address;
-	u16 length : 15;
-	u16 rd_wr : 1;
-};
+	__le16 target_address;
+	__le16 length_and_op;
+} __packed;
 
 struct axiom_bus_ops {
 	u16 bustype;
@@ -97,10 +87,10 @@ struct axiom_bus_ops {
 };
 
 enum u41_target_state_e {
-	Target_State_Not_Present = 0,
-	Target_State_Prox = 1,
-	Target_State_Hover = 2,
-	Target_State_Touching = 3,
+	target_state_not_present = 0,
+	target_state_prox = 1,
+	target_state_hover = 2,
+	target_state_touching = 3,
 };
 
 struct axiom {

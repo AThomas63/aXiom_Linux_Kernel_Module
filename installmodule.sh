@@ -15,14 +15,19 @@ if [[ $(lsmod | grep axiom_i2c | wc -l) != "0" ]]; then
 	echo "Removing axiom I2C module..."
 	sudo rmmod axiom_i2c_drv
 fi
-if [[ $(dtc -I fs /proc/device-tree 2>/dev/null | grep axiom | wc -l) != "0" ]]; then
-	echo "Unloading Device tree..."
-	sudo dtoverlay -r axiom_spi_overlay
-	sudo dtoverlay -r axiom_i2c_overlay
+
+if grep -rq "tnx,axiom" /proc/device-tree/; then
+    echo "aXiom hardware detected. Attempting to unload..."
+    
+    sudo dtoverlay -r axiom_spi_overlay >/dev/null 2>&1
+    sudo dtoverlay -r axiom_i2c_overlay >/dev/null 2>&1
 fi
-if [[ $(dtc -I fs /proc/device-tree 2>/dev/null | grep axiom | wc -l) != "0" ]]; then
-	echo "OOPS! couldn't unload axiom from device tree!"
-	exit 1
+
+if grep -rq "tnx,axiom" /proc/device-tree/; then
+    echo "OOPS! couldn't unload axiom from device tree!"
+    exit 1
+else
+    echo "Device tree cleaned successfully."
 fi
 
 if [ "${1}" == "spi" ]; then 
