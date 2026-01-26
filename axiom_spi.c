@@ -26,12 +26,13 @@ static int axiom_spi_transfer(struct device *dev, enum ax_comms_op_e op,
 			      u16 addr, u16 length, void *values)
 {
 	struct spi_device *spi = to_spi_device(dev);
+	u8 pad_buf[SPI_PADDING_LEN] = { 0 };
+	struct axiom_cmd_header cmd_header;
 	struct spi_transfer xfr_header;
 	struct spi_transfer xfr_padding;
 	struct spi_transfer xfr_payload;
 	struct spi_message msg;
-	struct axiom_cmd_header cmd_header;
-	u8 pad_buf[SPI_PADDING_LEN] = { 0 };
+	u16 len_op;
 	int err;
 	
 	put_unaligned_le16(addr, &cmd_header.target_address);

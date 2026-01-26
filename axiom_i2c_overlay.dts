@@ -30,16 +30,14 @@
 			status = "okay";
 
 			axiom_i2c@0 {
-					compatible = "axiom_i2c,axiom";
+					compatible = "tnx,axiom-i2c";
 					reg = <0x66>;  /* This must match the I2C ADDR selected on the EVK header, 
 									  use either <0x66> or <0x67>, the default is <0x66> */
 					clock-frequency = <400000>;
 					interrupt-parent = <&gpio>;
 					interrupts = < 24 8 >; /* <GPIO Flags> Flags: 1 = lo-to-hi, 2 = hi-to-lo, 4 = active high, 8 = active low  */
 					pinctrl-names = "default";
-					/* axiom,poll-enable; */
-					/* axiom,poll-period = /bits/ 8 <15>; */
-					/* pinctrl-0 = <&axiom_i2cPins>; */
+					/* pinctrl-0 = <&axiom_pins>; */
 			};		
 		};
 	};
@@ -47,7 +45,7 @@
 	fragment@1 {
 		target = <&gpio>;
 		__overlay__ {
-			axiom_i2cPins: axiom_i2cPins {
+			axiom_pins: axiom_pins {
 				brcm,pins = <24>; /* GEN5 on GPIO24 (on Pi Header Pin 18) */
 				brcm,function = <0>; /* in */
 				brcm,pull = <0>; /* 0 - none, 1 - down, 2 - up : https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/pinctrl/brcm%2Cbcm2835-gpio.txt */

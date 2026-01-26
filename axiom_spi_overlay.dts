@@ -54,7 +54,7 @@
 			#address-cells = < 0x01 >;
 			#size-cells = < 0x00 >;
 			axiom_spi@0 {
-				compatible = "axiom_spi,axiom";
+				compatible = "tnx,axiom-spi";
 				reg = < 0x00 >; /* nCE0 on GPIO8 (on Pi Header pin 24) */
 				#address-cells = < 0x01 >;
 				#size-cells = < 0x00 >;
@@ -63,8 +63,6 @@
 				interrupt-parent = < &gpio >;
 				interrupts = < 24 8 >; /* <GPIO Flags> Flags: 1 = lo-to-hi, 2 = hi-to-lo, 4 = active high, 8 = active low  */
 				status = "okay";
-				/* axiom,poll-enable; */
-				/* axiom,poll-period = /bits/ 8 <15>; */
 			};
 		};
 	};

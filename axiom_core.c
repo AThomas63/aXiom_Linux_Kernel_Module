@@ -77,14 +77,8 @@ static int axiom_set_capabilities(struct input_dev *input_dev)
 	input_dev->name = "TouchNetix aXiom Touchscreen";
 	input_dev->phys = "input/ts";
 
-	// Single Touch
-	input_set_abs_params(input_dev, ABS_X, 0, 65535, 0, 0);
-	input_set_abs_params(input_dev, ABS_Y, 0, 65535, 0, 0);
-
 	// Multi Touch
-	// Min, Max, Fuzz (expected noise in px, try 4?) and Flat
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X, 0, 65535, 0, 0);
-	// Min, Max, Fuzz (expected noise in px, try 4?) and Flat
 	input_set_abs_params(input_dev, ABS_MT_POSITION_Y, 0, 65535, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_TOOL_TYPE, 0, MT_TOOL_MAX, 0, 0);
 	input_set_abs_params(input_dev, ABS_MT_DISTANCE, 0, 127, 0, 0);
@@ -142,11 +136,11 @@ static void axiom_unpack_device_info(const u8 *buf,
 
 static void axiom_unpack_usage_table(u8 *buf, struct axiom *ax)
 {
-	u8 *ptr;
 	struct u31_usage_entry *entry;
+	u16 report_len;
+	u8 *ptr;
 	int i;
 	u16 w;
-	u16 report_len;
 
 	for (i = 0; i < ax->dev_info.num_usages && i < U31_MAX_USAGES; i++) {
 		entry = &ax->usage_table[i];
@@ -177,10 +171,10 @@ static void axiom_unpack_usage_table(u8 *buf, struct axiom *ax)
 
 static int axiom_init_dev_info(struct axiom *ax)
 {
-	int i;
 	struct u31_usage_entry *u;
-	int err;
 	const char *variant_str;
+	int err;
+	int i;
 
 	/* Read page 0 of u31 */
 	err = ax->bus_ops->read(ax->dev, 0x0, SIZE_U31_DEVICE_INFO,
@@ -257,11 +251,11 @@ static int axiom_init_dev_info(struct axiom *ax)
 
 static int axiom_process_u41_report(struct axiom *ax, u8 *report)
 {
-	int i;
+	enum u41_target_state_e state;
 	u16 target_present;
 	bool active;
 	u8 offset;
-	enum u41_target_state_e state;
+	int i;
 	u16 x;
 	u16 y;
 	s8 z;
@@ -329,12 +323,12 @@ static int axiom_process_u41_report(struct axiom *ax, u8 *report)
 
 static int axiom_process_report(struct axiom *ax, u8 *report)
 {
-	int err;
-	struct u34_report_header hdr;
-	u16 crc_calc;
-	u16 crc_report;
-	u8 len;
 	u16 hdr_buf = get_unaligned_le16(&report[0]);
+	struct u34_report_header hdr;
+	u16 crc_report;
+	u16 crc_calc;
+	int err;
+	u8 len;
 
 	dev_dbg(ax->dev, "Payload Data %*ph\n", ax->max_report_len, report);
 
@@ -410,8 +404,8 @@ out:
 struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 			  struct device *dev, int irq)
 {
-	struct axiom *ax;
 	struct input_dev *input_dev;
+	struct axiom *ax;
 	int err;
 
 	ax = devm_kzalloc(dev, sizeof(*ax), GFP_KERNEL);
@@ -455,7 +449,7 @@ struct axiom *axiom_probe(const struct axiom_bus_ops *bus_ops,
 	} else {
 		err = devm_request_threaded_irq(ax->dev, ax->irq, NULL,
 						axiom_irq,
-						IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+						IRQF_ONESHOT,
 						"axiom_irq", ax);
 		if (err)
 			return ERR_PTR(err);
